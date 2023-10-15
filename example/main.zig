@@ -16,17 +16,18 @@ const App = struct {
 };
 
 pub fn main() !void {
+    const provider = try wv.Provider.create(std.heap.c_allocator);
+    defer provider.destroy();
+    const view = try wv.View.create((@import("builtin").mode == .Debug), null);
+    defer view.destroy();
     var app = App{
-        .arena = std.heap.ArenaAllocator.init(std.heap.c_allocator),
-        .provider = undefined,
-        .view = undefined,
+        .arena = comptime std.heap.ArenaAllocator.init(std.heap.c_allocator),
+        .provider = provider,
+        .view = view,
 
         .user_name = null,
         .shutdown_thread = 0,
     };
-
-    app.provider = try wv.Provider.create(std.heap.c_allocator);
-    defer app.provider.destroy();
 
     std.log.info("base uri: {s}", .{app.provider.base_url});
 
@@ -38,9 +39,6 @@ pub fn main() !void {
     provide_thread.detach();
 
     std.log.info("provider ready.", .{});
-
-    app.view = try wv.View.create((@import("builtin").mode == .Debug), null);
-    defer app.view.destroy();
 
     app.view.setTitle("Zig Chat");
     app.view.setSize(400, 550, .fixed);
@@ -110,12 +108,12 @@ fn appendMessage(app: *App, message: Message) !void {
 }
 
 fn sendRandomMessagesInBackground(app: *App) !void {
-    var random = std.rand.DefaultPrng.init(@ptrToInt(&app));
+    var random = std.rand.DefaultPrng.init(@intFromPtr(&app));
     const rng = random.random();
     while (true) {
         const time_seconds = 1.5 + 5.5 * rng.float(f32);
 
-        const ns = @floatToInt(u64, std.time.ns_per_s * time_seconds);
+        const ns = @as(u64, @intFromFloat(std.time.ns_per_s * time_seconds));
 
         std.time.sleep(ns);
 

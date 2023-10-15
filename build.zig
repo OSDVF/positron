@@ -5,44 +5,53 @@ const ZigServe = @import("vendor/serve/build.zig");
 
 pub fn build(b: *std.build.Builder) void {
     const target = b.standardTargetOptions(.{});
-    const mode = b.standardReleaseOptions();
+    const mode = b.standardOptimizeOption(.{});
     const backend = b.option(Sdk.Backend, "backend", "Configures the backend that should be used for webview.");
 
     const wolfssl = ZigServe.createWolfSSL(b, target);
 
-    const minimal_exe = b.addExecutable("positron-minimal", "example/minimal.zig");
-    minimal_exe.setTarget(target);
-    minimal_exe.setBuildMode(mode);
+    const minimal_exe = b.addExecutable(.{
+        .name = "positron-minimal",
+        .root_source_file = .{ .path = "example/minimal.zig" },
+        .target = target,
+        .optimize = mode,
+    });
     minimal_exe.linkLibrary(wolfssl);
-    minimal_exe.addIncludePath("vendor/serve/vendor/wolfssl");
-
-    minimal_exe.addPackage(Sdk.getPackage("positron"));
+    minimal_exe.addIncludePath(.{
+        .cwd_relative = "vendor/serve/vendor/wolfssl",
+    });
+    const positron = Sdk.getPackage(b, "positron");
+    minimal_exe.addModule("positron", positron);
     Sdk.linkPositron(minimal_exe, null);
 
-    minimal_exe.install();
+    b.installArtifact(minimal_exe);
 
-    const exe = b.addExecutable("positron-demo", "example/main.zig");
+    const exe = b.addExecutable(.{
+        .name = "positron-demo",
+        .root_source_file = .{ .path = "example/main.zig" },
+        .target = target,
+        .optimize = mode,
+    });
     exe.linkLibrary(wolfssl);
-    exe.addIncludePath("vendor/serve/vendor/wolfssl");
-    exe.setTarget(target);
-
-    exe.setBuildMode(mode);
+    exe.addIncludePath(.{ .cwd_relative = "vendor/serve/vendor/wolfssl" });
 
     Sdk.linkPositron(exe, backend);
-    exe.addPackage(Sdk.getPackage("positron"));
+    exe.addModule("positron", positron);
 
-    exe.install();
+    b.installArtifact(exe);
 
-    const positron_test = b.addTest("src/positron.zig");
+    const positron_test = b.addTest(.{
+        .root_source_file = .{ .path = "src/positron.zig" },
+    });
 
     Sdk.linkPositron(positron_test, null);
-    positron_test.addPackage(Sdk.getPackage("positron"));
+    positron_test.addModule("positron", positron);
 
     const test_step = b.step("test", "Runs the test suite");
 
     test_step.dependOn(&positron_test.step);
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
 
     run_cmd.step.dependOn(b.getInstallStep());
 

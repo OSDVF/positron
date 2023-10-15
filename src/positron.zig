@@ -14,7 +14,7 @@ pub const View = opaque {
     /// Depending on the platform, a GtkWindow, NSWindow or HWND pointer can be
     /// passed here.
     pub fn create(allow_debug: bool, parent_window: ?*anyopaque) !*Self {
-        return webview_create(@boolToInt(allow_debug), parent_window) orelse return error.WebviewError;
+        return webview_create(@intFromBool(allow_debug), parent_window) orelse return error.WebviewError;
     }
 
     /// Destroys a webview and closes the native window.
@@ -54,7 +54,7 @@ pub const View = opaque {
 
     /// Updates native window size.
     pub fn setSize(self: *Self, width: u16, height: u16, hint: SizeHint) void {
-        webview_set_size(self, width, height, @enumToInt(hint));
+        webview_set_size(self, width, height, @intFromEnum(hint));
     }
 
     /// Navigates webview to the given URL. URL may be a data URI, i.e.
@@ -88,7 +88,7 @@ pub const View = opaque {
         const Binder = struct {
             fn c_callback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
                 callback(
-                    @ptrCast(Context, arg),
+                    @as(Context, @ptrCast(arg)),
                     std.mem.sliceTo(seq, 0),
                     std.mem.sliceTo(req, 0),
                 );
@@ -103,15 +103,15 @@ pub const View = opaque {
     /// all other parameters must be deserializable to JSON. The return value might be a error union,
     /// in which case the error is returned to the JS promise. Otherwise, a normal result is serialized to
     /// JSON and then sent back to JS.
-    pub fn bind(self: *Self, name: [:0]const u8, comptime callback: anytype, context: @typeInfo(@TypeOf(callback)).Fn.args[0].arg_type.?) void {
+    pub fn bind(self: *Self, name: [:0]const u8, comptime callback: anytype, context: @typeInfo(@TypeOf(callback)).Fn.params[0].type.?) void {
         const Fn = @TypeOf(callback);
-        const function_info: std.builtin.TypeInfo.Fn = @typeInfo(Fn).Fn;
+        const function_info = @typeInfo(Fn).Fn;
 
-        if (function_info.args.len < 1)
+        if (function_info.params.len < 1)
             @compileError("Function must take at least the context argument!");
 
         const ReturnType = function_info.return_type orelse @compileError("Function must be non-generic!");
-        const return_info: std.builtin.TypeInfo = @typeInfo(ReturnType);
+        const return_info = @typeInfo(ReturnType);
 
         const Context = @TypeOf(context);
 
@@ -122,16 +122,18 @@ pub const View = opaque {
                 return ctx.getWebView();
             }
 
-            fn expectArrayStart(stream: *std.json.TokenStream) !void {
-                const tok = (try stream.next()) orelse return error.InvalidJson;
-                if (tok != .ArrayBegin)
+            fn expectArrayStart(stream: *std.json.Scanner) !void {
+                const tok = (try stream.peekNextTokenType());
+                if (tok != .array_begin)
                     return error.InvalidJson;
+                _ = try stream.next();
             }
 
-            fn expectArrayEnd(stream: *std.json.TokenStream) !void {
-                const tok = (try stream.next()) orelse return error.InvalidJson;
-                if (tok != .ArrayEnd)
+            fn expectArrayEnd(stream: *std.json.Scanner) !void {
+                const tok = (try stream.peekNextTokenType());
+                if (tok != .array_end)
                     return error.InvalidJson;
+                _ = try stream.next();
             }
 
             fn errorResponse(view: *Self, seq: [:0]const u8, err: anyerror) void {
@@ -163,7 +165,7 @@ pub const View = opaque {
             }
 
             fn c_callback(seq0: [*c]const u8, req0: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
-                const cb_context = @ptrCast(Context, @alignCast(@alignOf(std.meta.Child(Context)), arg));
+                const cb_context = @as(Context, @ptrCast(@alignCast(arg)));
 
                 const view = getWebView(cb_context);
 
@@ -182,7 +184,8 @@ pub const View = opaque {
                 var parsed_args: ArgType = undefined;
                 parsed_args[0] = cb_context;
 
-                var json_parser = std.json.TokenStream.init(req);
+                var allocator = arena.allocator();
+                var json_parser = std.json.Scanner.initCompleteInput(allocator, req);
                 {
                     expectArrayStart(&json_parser) catch |err| {
                         std.log.err("parser start: {}", .{err});
@@ -190,19 +193,24 @@ pub const View = opaque {
                     };
 
                     comptime var i = 1;
-                    inline while (i < function_info.args.len) : (i += 1) {
+                    inline while (i < function_info.params.len) : (i += 1) {
+                        var arena2 = allocator.create(std.heap.ArenaAllocator) catch |err| return errorResponse(view, seq, err);
+                        errdefer allocator.destroy(arena2);
+                        arena2.* = std.heap.ArenaAllocator.init(allocator);
+                        errdefer arena2.deinit();
                         const Type = @TypeOf(parsed_args[i]);
-                        parsed_args[i] = std.json.parse(Type, &json_parser, .{
-                            .allocator = arena.allocator(),
-                            .duplicate_field_behavior = .UseFirst,
+                        const parsed = std.json.innerParse(Type, arena2.allocator(), &json_parser, .{
+                            .duplicate_field_behavior = .use_first,
                             .ignore_unknown_fields = false,
-                            .allow_trailing_data = true,
+                            .allocate = .alloc_if_needed,
+                            .max_value_len = json_parser.input.len,
                         }) catch |err| {
                             if (@errorReturnTrace()) |trace|
                                 std.debug.dumpStackTrace(trace.*);
                             std.log.err("parsing argument {d}: {}", .{ i, err });
                             return errorResponse(view, seq, err);
                         };
+                        parsed_args[i] = parsed;
                     }
 
                     expectArrayEnd(&json_parser) catch |err| {
@@ -211,7 +219,7 @@ pub const View = opaque {
                     };
                 }
 
-                const result = @call(.{}, callback, parsed_args);
+                const result = @call(.auto, callback, parsed_args);
 
                 // std.debug.print("result: {}\n", .{result});
 
@@ -254,7 +262,7 @@ pub const View = opaque {
     extern fn webview_navigate(w: *Self, url: [*:0]const u8) void;
     extern fn webview_init(w: *Self, js: [*:0]const u8) void;
     extern fn webview_eval(w: *Self, js: [*:0]const u8) void;
-    extern fn webview_bind(w: *Self, name: [*:0]const u8, func: ?fn ([*c]const u8, [*c]const u8, ?*anyopaque) callconv(.C) void, arg: ?*anyopaque) void;
+    extern fn webview_bind(w: *Self, name: [*:0]const u8, func: *const fn ([*c]const u8, [*c]const u8, ?*anyopaque) callconv(.C) void, arg: ?*anyopaque) void;
     extern fn webview_return(w: *Self, seq: [*:0]const u8, status: c_int, result: [*c]const u8) void;
 };
 
@@ -298,7 +306,7 @@ pub const Provider = struct {
         const Error = error{OutOfMemory} || zig_serve.HttpResponse.WriteError;
 
         const GenericPointer = opaque {};
-        const RouteHandler = fn (*Provider, *Route, *zig_serve.HttpContext) Error!void;
+        const RouteHandler = *const fn (*Provider, *Route, *zig_serve.HttpContext) Error!void;
 
         arena: std.heap.ArenaAllocator,
         prefix: [:0]const u8,
@@ -306,7 +314,7 @@ pub const Provider = struct {
         handler: RouteHandler,
         context: *GenericPointer,
         pub fn getContext(self: Route, comptime T: type) *T {
-            return @ptrCast(*T, @alignCast(@alignOf(T), self.context));
+            return @as(*T, @ptrCast(@alignCast(self.context)));
         }
 
         pub fn deinit(self: *Route) void {
@@ -371,7 +379,6 @@ pub const Provider = struct {
     fn defaultRoute(self: *Provider, route: *Route, context: *zig_serve.HttpContext) Route.Error!void {
         _ = self;
         _ = route;
-        _ = context;
 
         try context.response.setHeader("Content-Type", "text/html");
         try context.response.setStatusCode(.not_found);
@@ -433,7 +440,7 @@ pub const Provider = struct {
         };
 
         route.handler = Handler.handle;
-        route.context = @ptrCast(*Route.GenericPointer, handler);
+        route.context = @as(*Route.GenericPointer, @ptrCast(handler));
     }
 
     /// Returns the full URI for `abs_path`
