@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const zig_serve = @import("serve");
+const log = std.log.scoped(.Positron);
 
 /// A web browser window that one can interact with.
 /// Uses a JSON RPC solution to talk to the browser window.
@@ -188,7 +189,7 @@ pub const View = opaque {
                 var json_parser = std.json.Scanner.initCompleteInput(allocator, req);
                 {
                     expectArrayStart(&json_parser) catch |err| {
-                        std.log.err("parser start: {}", .{err});
+                        log.err("parser start: {}", .{err});
                         return errorResponse(view, seq, err);
                     };
 
@@ -207,14 +208,14 @@ pub const View = opaque {
                         }) catch |err| {
                             if (@errorReturnTrace()) |trace|
                                 std.debug.dumpStackTrace(trace.*);
-                            std.log.err("parsing argument {d}: {}", .{ i, err });
+                            log.err("parsing argument {d}: {}", .{ i, err });
                             return errorResponse(view, seq, err);
                         };
                         parsed_args[i] = parsed;
                     }
 
                     expectArrayEnd(&json_parser) catch |err| {
-                        std.log.err("parser end: {}", .{err});
+                        log.err("parser end: {}", .{err});
                         return errorResponse(view, seq, err);
                     };
                 }
@@ -329,7 +330,7 @@ pub const Provider = struct {
 
     routes: std.ArrayList(Route),
 
-    pub fn create(allocator: std.mem.Allocator) !*Self {
+    pub fn create(allocator: std.mem.Allocator, port: u16) !*Self {
         const provider = try allocator.create(Self);
         errdefer allocator.destroy(provider);
 
@@ -344,7 +345,7 @@ pub const Provider = struct {
         provider.server = try zig_serve.HttpListener.init(allocator);
         errdefer provider.server.deinit();
 
-        try provider.server.addEndpoint(zig_serve.IP.loopback_v4, 0);
+        try provider.server.addEndpoint(zig_serve.IP.loopback_v4, port);
 
         try provider.server.start();
 
@@ -459,7 +460,7 @@ pub const Provider = struct {
             defer ctx.deinit();
 
             self.handleRequest(ctx) catch |err| {
-                std.log.err("failed to handle request:{s}", .{@errorName(err)});
+                log.warn("failed request: {s}", .{@errorName(err)});
             };
         }
     }
@@ -473,8 +474,6 @@ pub const Provider = struct {
         if (std.mem.indexOfScalar(u8, path, '?')) |index| {
             path = path[0..index];
         }
-
-        std.log.info("positron request: {s}", .{path});
 
         var best_match: ?*Route = null;
         for (self.routes.items) |*route| {
