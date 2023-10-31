@@ -55,6 +55,7 @@ pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend) voi
     compileStep.addCSourceFile(.{ .file = .{ .path = sdkRoot() ++ "/src/wv/webview.cpp" }, .flags = &[_][]const u8{
         "-std=c++17",
         "-fno-sanitize=undefined",
+        "-Bsymbolic",
     } });
 
     if (compileStep.target.isWindows()) {
@@ -88,13 +89,13 @@ pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend) voi
         //# MacOS
         //$ c++ main.cc -std=c++11 -framework WebKit -o webview-example
         .macos => {
-            compileStep.linkFramework("WebKit");
+            compileStep.linkFrameworkWeak("WebKit");
         },
         //# Linux
         //$ c++ main.cc `pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.0` -o webview-example
         .linux => {
-            compileStep.linkSystemLibrary("gtk+-3.0");
-            compileStep.linkSystemLibrary("webkit2gtk-4.0");
+            compileStep.linkSystemLibrary2("gtk+-3.0", .{ .weak = true });
+            compileStep.linkSystemLibrary2("webkit2gtk-4.0", .{ .weak = true });
         },
         else => std.debug.panic("unsupported os: {s}", .{@tagName(compileStep.target.getOsTag())}),
     }
