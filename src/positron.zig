@@ -365,8 +365,9 @@ pub const Provider = struct {
         }
         self.routes.deinit();
         self.allocator.free(self.base_url);
+        const allocator = self.allocator;
         self.* = undefined;
-        std.heap.c_allocator.destroy(self);
+        allocator.destroy(self);
     }
 
     fn compareRoute(_: void, lhs: Route, rhs: Route) bool {
@@ -428,6 +429,34 @@ pub const Provider = struct {
                 const handler = r.getContext(@This());
 
                 try context.response.setHeader("Content-Type", handler.mime_type);
+
+                var writer = try context.response.writer();
+                try writer.writeAll(handler.contents);
+            }
+        };
+
+        const handler = try route.arena.allocator().create(Handler);
+        handler.* = Handler{
+            .mime_type = try route.arena.allocator().dupe(u8, mime_type),
+            .contents = try route.arena.allocator().dupe(u8, contents),
+        };
+
+        route.handler = Handler.handle;
+        route.context = @as(*Route.GenericPointer, @ptrCast(handler));
+    }
+
+    pub fn addContentDeflated(self: *Self, abs_path: []const u8, mime_type: []const u8, contents: []const u8) !void {
+        const route = try self.addRoute(abs_path);
+
+        const Handler = struct {
+            mime_type: []const u8,
+            contents: []const u8,
+
+            fn handle(_: *Provider, r: *Route, context: *zig_serve.HttpContext) Route.Error!void {
+                const handler = r.getContext(@This());
+
+                try context.response.setHeader("Content-Type", handler.mime_type);
+                try context.response.setHeader("Content-Encoding", "deflate");
 
                 var writer = try context.response.writer();
                 try writer.writeAll(handler.contents);

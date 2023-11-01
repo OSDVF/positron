@@ -17,30 +17,31 @@ inline fn sdkRoot() []const u8 {
     }
 }
 
+pub fn getServeModule(b: *std.Build) *std.Build.Module {
+    return b.addModule("serve", .{
+        .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/src/serve.zig" },
+        .dependencies = &.{
+            .{
+                .name = "uri",
+                .module = b.createModule(.{
+                    .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/uri/uri.zig" },
+                }),
+            },
+            .{
+                .name = "network",
+                .module = b.createModule(.{
+                    .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/network/network.zig" },
+                }),
+            },
+        },
+    });
+}
+
 pub fn getPackage(b: *std.Build, name: []const u8) *std.Build.Module {
     return b.addModule(name, .{
         .source_file = .{ .path = sdkRoot() ++ "/src/positron.zig" },
         .dependencies = &.{
-            .{
-                .name = "serve",
-                .module = b.createModule(.{
-                    .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/src/serve.zig" },
-                    .dependencies = &.{
-                        .{
-                            .name = "uri",
-                            .module = b.createModule(.{
-                                .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/uri/uri.zig" },
-                            }),
-                        },
-                        .{
-                            .name = "network",
-                            .module = b.createModule(.{
-                                .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/network/network.zig" },
-                            }),
-                        },
-                    },
-                }),
-            },
+            .{ .name = "serve", .module = getServeModule(b) },
         },
     });
 }
