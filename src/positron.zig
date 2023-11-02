@@ -303,8 +303,8 @@ test {
 pub const Provider = struct {
     const Self = @This();
 
-    const Route = struct {
-        const Error = error{OutOfMemory} || zig_serve.HttpResponse.WriteError;
+    pub const Route = struct {
+        pub const Error = error{OutOfMemory} || zig_serve.HttpResponse.WriteError;
 
         const GenericPointer = opaque {};
         const RouteHandler = *const fn (*Provider, *Route, *zig_serve.HttpContext) Error!void;
@@ -327,7 +327,8 @@ pub const Provider = struct {
     allocator: std.mem.Allocator,
     server: zig_serve.HttpListener,
     base_url: []const u8,
-
+    not_found_text: ?[]const u8 = null,
+    shotdown: bool = false,
     routes: std.ArrayList(Route),
 
     pub fn create(allocator: std.mem.Allocator, port: u16) !*Self {
@@ -358,7 +359,9 @@ pub const Provider = struct {
     }
 
     pub fn destroy(self: *Self) void {
-        self.server.deinit();
+        if (!self.shotdown) {
+            self.server.deinit();
+        }
 
         for (self.routes.items) |*route| {
             route.deinit();
@@ -379,14 +382,13 @@ pub const Provider = struct {
     }
 
     fn defaultRoute(self: *Provider, route: *Route, context: *zig_serve.HttpContext) Route.Error!void {
-        _ = self;
         _ = route;
 
         try context.response.setHeader("Content-Type", "text/html");
         try context.response.setStatusCode(.not_found);
 
         var writer = try context.response.writer();
-        try writer.writeAll(
+        try writer.writeAll(self.not_found_text orelse
             \\<!doctype html>
             \\<html lang="en">
             \\  <head>
@@ -397,6 +399,7 @@ pub const Provider = struct {
             \\  </body>
             \\</html>
         );
+        try writer.writeByte('\n');
     }
 
     pub fn addRoute(self: *Self, abs_path: []const u8) !*Route {
@@ -406,7 +409,7 @@ pub const Provider = struct {
         errdefer _ = self.routes.pop();
 
         route.* = Route{
-            .arena = std.heap.ArenaAllocator.init(std.heap.c_allocator),
+            .arena = std.heap.ArenaAllocator.init(self.allocator),
             .prefix = undefined,
             .handler = defaultRoute,
             .context = undefined,
@@ -484,8 +487,7 @@ pub const Provider = struct {
     }
 
     pub fn run(self: *Self) !void {
-        while (true) {
-            var ctx = try self.server.getContext();
+        while (try self.server.getContext()) |ctx| {
             defer ctx.deinit();
 
             self.handleRequest(ctx) catch |err| {
@@ -494,8 +496,10 @@ pub const Provider = struct {
         }
     }
 
+    /// use when calling from different thread
     pub fn shutdown(self: *Self) void {
-        self.server.shutdown();
+        self.server.stop();
+        self.shotdown = true;
     }
 
     fn handleRequest(self: *Self, ctx: *zig_serve.HttpContext) !void {
