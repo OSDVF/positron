@@ -328,7 +328,6 @@ pub const Provider = struct {
     server: zig_serve.HttpListener,
     base_url: []const u8,
     not_found_text: ?[]const u8 = null,
-    shotdown: bool = false,
     routes: std.ArrayList(Route),
 
     pub fn create(allocator: std.mem.Allocator, port: u16) !*Self {
@@ -359,18 +358,13 @@ pub const Provider = struct {
     }
 
     pub fn destroy(self: *Self) void {
-        if (!self.shotdown) {
-            self.server.deinit();
-        }
+        self.server.deinit();
 
         for (self.routes.items) |*route| {
             route.deinit();
         }
         self.routes.deinit();
         self.allocator.free(self.base_url);
-        const allocator = self.allocator;
-        self.* = undefined;
-        allocator.destroy(self);
     }
 
     fn compareRoute(_: void, lhs: Route, rhs: Route) bool {
@@ -494,12 +488,6 @@ pub const Provider = struct {
                 log.warn("failed request: {s}", .{@errorName(err)});
             };
         }
-    }
-
-    /// use when calling from different thread
-    pub fn shutdown(self: *Self) void {
-        self.server.stop();
-        self.shotdown = true;
     }
 
     fn handleRequest(self: *Self, ctx: *zig_serve.HttpContext) !void {
