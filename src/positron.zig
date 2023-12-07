@@ -37,8 +37,8 @@ pub const View = opaque {
 
     /// Posts a function to be executed on the main thread. You normally do not need
     /// to call this function, unless you want to tweak the native window.
-    pub fn dispatch() void {
-        // extern fn webview_dispatch(w: *WebView, func: ?fn (*WebView, ?*c_void) callconv(.C) void, arg: ?*c_void) void;
+    pub fn dispatch(self: *Self, func: *const fn (*Self, ?*const anyopaque) callconv(.C) void, arg: ?*anyopaque) void {
+        webview_dispatch(self, func, arg);
     }
 
     // Returns a native window handle pointer. When using GTK backend the pointer
@@ -75,8 +75,8 @@ pub const View = opaque {
     /// Evaluates arbitrary JavaScript code. Evaluation happens asynchronously, also
     /// the result of the expression is ignored. Use RPC bindings if you want to
     /// receive notifications about the results of the evaluation.
-    pub fn eval(self: *Self, js: [:0]const u8) void {
-        webview_eval(self, js.ptr);
+    pub fn eval(self: *Self, js: [*:0]const u8) void {
+        webview_eval(self, js);
     }
 
     /// Binds a callback so that it will appear under the given name as a
@@ -256,7 +256,7 @@ pub const View = opaque {
     extern fn webview_destroy(w: *Self) void;
     extern fn webview_run(w: *Self) void;
     extern fn webview_terminate(w: *Self) void;
-    extern fn webview_dispatch(w: *Self, func: ?fn (*Self, ?*anyopaque) callconv(.C) void, arg: ?*anyopaque) void;
+    extern fn webview_dispatch(w: *Self, func: ?*const fn (*Self, ?*anyopaque) callconv(.C) void, arg: ?*anyopaque) void;
     extern fn webview_get_window(w: *Self) ?*anyopaque;
     extern fn webview_set_title(w: *Self, title: [*:0]const u8) void;
     extern fn webview_set_size(w: *Self, width: c_int, height: c_int, hints: c_int) void;
