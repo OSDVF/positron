@@ -329,6 +329,7 @@ pub const Provider = struct {
     base_url: []const u8,
     not_found_text: ?[]const u8 = null,
     routes: std.ArrayList(Route),
+    allowed_origins: ?std.BufSet = null,
 
     pub fn create(allocator: std.mem.Allocator, port: u16) !*Self {
         const provider = try allocator.create(Self);
@@ -359,6 +360,9 @@ pub const Provider = struct {
 
     pub fn destroy(self: *Self) void {
         self.server.deinit();
+        if (self.allowed_origins) |*ao| {
+            ao.deinit();
+        }
 
         for (self.routes.items) |*route| {
             route.deinit();
@@ -421,11 +425,19 @@ pub const Provider = struct {
         const Handler = struct {
             mime_type: []const u8,
             contents: []const u8,
+            allowed_origins: ?std.BufSet,
 
             fn handle(_: *Provider, r: *Route, context: *zig_serve.HttpContext) Route.Error!void {
                 const handler = r.getContext(@This());
 
                 try context.response.setHeader("Content-Type", handler.mime_type);
+                if (handler.allowed_origins) |ao| {
+                    if (context.request.headers.get("Origin")) |o| {
+                        if (ao.contains(o)) {
+                            try context.response.setHeader("Access-Control-Allow-Origin", o);
+                        }
+                    }
+                }
 
                 var writer = try context.response.writer();
                 try writer.writeAll(handler.contents);
@@ -436,24 +448,33 @@ pub const Provider = struct {
         handler.* = Handler{
             .mime_type = try route.arena.allocator().dupe(u8, mime_type),
             .contents = try route.arena.allocator().dupe(u8, contents),
+            .allowed_origins = self.allowed_origins,
         };
 
         route.handler = Handler.handle;
         route.context = @as(*Route.GenericPointer, @ptrCast(handler));
     }
 
-    pub fn addContentDeflated(self: *Self, abs_path: []const u8, mime_type: []const u8, contents: []const u8) !void {
+    pub fn addContentDeflatedNoAlloc(self: *Self, abs_path: []const u8, mime_type: []const u8, contents: []const u8) !void {
         const route = try self.addRoute(abs_path);
 
         const Handler = struct {
             mime_type: []const u8,
             contents: []const u8,
+            allowed_origins: ?std.BufSet,
 
             fn handle(_: *Provider, r: *Route, context: *zig_serve.HttpContext) Route.Error!void {
                 const handler = r.getContext(@This());
 
                 try context.response.setHeader("Content-Type", handler.mime_type);
                 try context.response.setHeader("Content-Encoding", "deflate");
+                if (handler.allowed_origins) |ao| {
+                    if (context.request.headers.get("Origin")) |o| {
+                        if (ao.contains(o)) {
+                            try context.response.setHeader("Access-Control-Allow-Origin", o);
+                        }
+                    }
+                }
 
                 var writer = try context.response.writer();
                 try writer.writeAll(handler.contents);
@@ -462,8 +483,9 @@ pub const Provider = struct {
 
         const handler = try route.arena.allocator().create(Handler);
         handler.* = Handler{
-            .mime_type = try route.arena.allocator().dupe(u8, mime_type),
-            .contents = try route.arena.allocator().dupe(u8, contents),
+            .mime_type = mime_type,
+            .contents = contents,
+            .allowed_origins = self.allowed_origins,
         };
 
         route.handler = Handler.handle;

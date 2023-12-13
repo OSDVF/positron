@@ -15,11 +15,11 @@
 //
 
 #define WIN32_LEAN_AND_MEAN
-#include <Shlwapi.h>
+#include <shlwapi.h>
 #include <codecvt>
 #include <stdlib.h>
 #include <windows.h>
-#include <WinUser.h>
+#include <winuser.h>
 
 extern "C" WINUSERAPI BOOL WINAPI SetProcessDpiAwarenessContext(
     _In_ DPI_AWARENESS_CONTEXT value);
