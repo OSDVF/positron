@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const Backend = enum {
     gtk,
@@ -46,9 +47,18 @@ pub fn getPackage(b: *std.Build, name: []const u8) *std.Build.Module {
     });
 }
 
+pub fn archName(arch: std.Target.Cpu.Arch) []const u8 {
+    return switch (arch) {
+        .aarch64 => "arm64",
+        .x86_64 => "x64",
+        .x86 => "x86",
+        else => @panic("Unsupported architecture for WebView2"),
+    };
+}
+
 /// Links positron to `exe`. `exe` must have its final `target` already set!
 /// `backend` selects the backend to be used, use `null` for a good default.
-pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend) void {
+pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend, static: bool) void {
     compileStep.linkLibC();
     compileStep.linkSystemLibrary("c++");
 
@@ -63,13 +73,23 @@ pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend) voi
 
         // Attempts to fix windows building:
         compileStep.addIncludePath(.{ .path = sdkRoot() ++ "/vendor/winsdk" });
-
         compileStep.addIncludePath(.{ .path = sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native/include" });
-        compileStep.addLibraryPath(.{ .path = sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native/x64" });
+        const arch = archName(compileStep.target.cpu_arch orelse builtin.cpu.arch);
+        const alloc = compileStep.step.owner.allocator; //alias
+        compileStep.addLibraryPath(.{ .path = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch }) catch @panic("OOM") });
         compileStep.linkSystemLibrary("user32");
         compileStep.linkSystemLibrary("ole32");
         compileStep.linkSystemLibrary("oleaut32");
-        compileStep.addObjectFile(.{ .path = sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native/x64/WebView2Loader.dll.lib" });
+        compileStep.linkSystemLibrary("shlwapi");
+        if (static) {
+            compileStep.linkSystemLibrary("WebView2LoaderStatic");
+        } else {
+            compileStep.addObjectFile(.{ .path = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch, "WebView2Loader.dll.lib" }) catch @panic("OOM") });
+            compileStep.step.dependOn(&compileStep.step.owner.addInstallLibFile(
+                .{ .path = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch, "WebView2Loader.dll" }) catch @panic("OOM") },
+                "WebView2Loader.dll",
+            ).step);
+        }
         //exe.linkSystemLibrary("windowsapp");
     }
 

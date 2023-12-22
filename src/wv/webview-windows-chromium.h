@@ -18,17 +18,17 @@ public:
 
     wchar_t currentExePath[MAX_PATH];
     GetModuleFileNameW(NULL, currentExePath, MAX_PATH);
-    // char *currentExeName = PathFindFileNameA(currentExePath);
+    wchar_t *currentExeName = PathFindFileNameW(currentExePath);
 
     wchar_t userDataFolderBit[MAX_PATH];
     GetEnvironmentVariableW(L"APPDATA", userDataFolderBit, MAX_PATH);
 
     wchar_t folder[MAX_PATH];
     wcscpy(folder, userDataFolderBit);
-    wcscat(folder, L"/");
-    wcscat(folder, L"ZigWebViewDemo");
+    wcscat(folder, L"\\");
+    wcscat(folder, currentExeName);
 
-    wprintf(L"folder = %ls\n", folder);
+    wprintf(L"Webview data folder: %ls\n", folder);
 
     auto handler = new webview2_com_handler(wnd, cb,
                                             [&](ICoreWebView2Controller *controller)
@@ -49,14 +49,17 @@ public:
       CoUninitialize();
       if (res == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))
       {
-        printf("File not found?\n");
+        printf("WebView2 library not found. Try https://developer.microsoft.com/en-us/microsoft-edge/webview2#download\n");
       }
       printf("failed to create webview: 0x%X!\n", res);
       return false;
     }
     MSG msg = {};
-    while (flag.test_and_set() && GetMessage(&msg, NULL, 0, 0))
+    while (flag.test_and_set() && GetMessage(&msg, NULL, 0, 0) >= 0)
     {
+      if (msg.message == WM_QUIT) {
+        return false;
+      }
       TranslateMessage(&msg);
       DispatchMessage(&msg);
     }
@@ -130,8 +133,15 @@ private:
     HRESULT STDMETHODCALLTYPE Invoke(HRESULT res,
                                      ICoreWebView2Environment *env)
     {
-      printf("created env: 0x%X, env=%p, hwnd=%p\n", res, env, m_window);
-      env->CreateCoreWebView2Controller(m_window, this);
+      if(SUCCEEDED(res)) {
+        printf("created env: 0x%X, env=%p, hwnd=%p\n", res, env, m_window);
+        res = env->CreateCoreWebView2Controller(m_window, this);
+        if(SUCCEEDED(res)) {
+          return S_OK;
+        } else {
+          fprintf(stderr, "failed to create webview controller: 0x%X\n", res);
+        }
+      }
       return S_OK;
     }
     HRESULT STDMETHODCALLTYPE Invoke(HRESULT res,
