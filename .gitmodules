@@ -1,7 +1,7 @@
 
 [submodule "vendor/args"]
 	path = vendor/args
-	url = https://github.com/MasterQ32/zig-args
+	url = https://github.com/OSDVF/zig-args
 [submodule "vendor/serve"]
 	path = vendor/serve
-	url = https://github.com/MasterQ32/zig-serve
+	url = https://github.com/OSDVF/zig-serve
