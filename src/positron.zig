@@ -578,8 +578,8 @@ pub const Provider = struct {
         }
     }
 
-    fn fdIsValid(fd: std.os.fd_t) bool {
-        return std.os.system.fcntl(fd, std.os.F.GETFD) != -1;
+    fn fdIsValid(fd: std.posix.fd_t) bool {
+        return std.posix.system.fcntl(fd, std.posix.F.GETFD) != -1;
     }
 
     fn handleRequest(self: *Self, ctx: *zig_serve.HttpContext) !void {

@@ -20,18 +20,18 @@ inline fn sdkRoot() []const u8 {
 
 pub fn getServeModule(b: *std.Build) *std.Build.Module {
     return b.addModule("serve", .{
-        .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/src/serve.zig" },
-        .dependencies = &.{
+        .root_source_file = .{ .path = sdkRoot() ++ "/vendor/serve/src/serve.zig" },
+        .imports = &.{
             .{
                 .name = "uri",
                 .module = b.createModule(.{
-                    .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/uri/uri.zig" },
+                    .root_source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/uri/uri.zig" },
                 }),
             },
             .{
                 .name = "network",
                 .module = b.createModule(.{
-                    .source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/network/network.zig" },
+                    .root_source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/network/network.zig" },
                 }),
             },
         },
@@ -40,8 +40,8 @@ pub fn getServeModule(b: *std.Build) *std.Build.Module {
 
 pub fn getPackage(b: *std.Build, name: []const u8) *std.Build.Module {
     return b.addModule(name, .{
-        .source_file = .{ .path = sdkRoot() ++ "/src/positron.zig" },
-        .dependencies = &.{
+        .root_source_file = .{ .path = sdkRoot() ++ "/src/positron.zig" },
+        .imports = &.{
             .{ .name = "serve", .module = getServeModule(b) },
         },
     });
@@ -58,7 +58,7 @@ pub fn archName(arch: std.Target.Cpu.Arch) []const u8 {
 
 /// Links positron to `exe`. `exe` must have its final `target` already set!
 /// `backend` selects the backend to be used, use `null` for a good default.
-pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend, static: bool) void {
+pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, static: bool) void {
     compileStep.linkLibC();
     compileStep.linkSystemLibrary("c++");
 
@@ -69,12 +69,12 @@ pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend, sta
         "-Bsymbolic",
     } });
 
-    if (compileStep.target.isWindows()) {
+    if (compileStep.rootModuleTarget().os.tag == .windows) {
 
         // Attempts to fix windows building:
         compileStep.addIncludePath(.{ .path = sdkRoot() ++ "/vendor/winsdk" });
         compileStep.addIncludePath(.{ .path = sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native/include" });
-        const arch = archName(compileStep.target.cpu_arch orelse builtin.cpu.arch);
+        const arch = archName(compileStep.rootModuleTarget().cpu.arch);
         const alloc = compileStep.step.owner.allocator; //alias
         compileStep.addLibraryPath(.{ .path = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch }) catch @panic("OOM") });
         compileStep.linkSystemLibrary("user32");
@@ -101,7 +101,7 @@ pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend, sta
         }
     }
 
-    switch (compileStep.target.getOsTag()) {
+    switch (compileStep.rootModuleTarget().os.tag) {
         //# Windows (x64)
         //$ c++ main.cc -mwindows -L./dll/x64 -lwebview -lWebView2Loader -o webview-example.exe
         .windows => {
@@ -118,6 +118,6 @@ pub fn linkPositron(compileStep: *std.build.Step.Compile, backend: ?Backend, sta
             compileStep.linkSystemLibrary2("gtk+-3.0", .{ .weak = true });
             compileStep.linkSystemLibrary2("webkit2gtk-4.0", .{ .weak = true });
         },
-        else => std.debug.panic("unsupported os: {s}", .{@tagName(compileStep.target.getOsTag())}),
+        else => std.debug.panic("unsupported os: {s}", .{@tagName(compileStep.rootModuleTarget().os.tag)}),
     }
 }

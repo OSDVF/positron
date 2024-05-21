@@ -3,7 +3,7 @@ const pkgs = @import(".zpm/pkgs.zig");
 const Sdk = @import("Sdk.zig");
 const ZigServe = @import("vendor/serve/build.zig");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.Build.Builder) void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardOptimizeOption(.{});
     const backend = b.option(Sdk.Backend, "backend", "Configures the backend that should be used for webview.");
