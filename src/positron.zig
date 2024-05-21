@@ -347,6 +347,7 @@ pub const Provider = struct {
     /// List of directories that contain runtime CWD-relative file tree with provided content
     embedded: std.ArrayList(EmbedDir),
     allowed_origins: ?std.BufSet = null,
+    cwd: std.fs.Dir,
 
     pub fn create(allocator: std.mem.Allocator, port: u16) !*Self {
         const provider = try allocator.create(Self);
@@ -355,6 +356,7 @@ pub const Provider = struct {
         provider.* = Self{
             .allocator = allocator,
             .base_url = undefined,
+            .cwd = try std.fs.cwd().openDir(".", .{}),
             .embedded = std.ArrayList(EmbedDir).init(allocator),
             .server = undefined,
             .routes = std.ArrayList(Route).init(allocator),
@@ -387,6 +389,7 @@ pub const Provider = struct {
         }
         self.routes.deinit();
         self.embedded.deinit();
+        self.cwd.close();
         self.allocator.free(self.base_url);
     }
 
@@ -575,6 +578,10 @@ pub const Provider = struct {
         }
     }
 
+    fn fdIsValid(fd: std.os.fd_t) bool {
+        return std.os.system.fcntl(fd, std.os.F.GETFD) != -1;
+    }
+
     fn handleRequest(self: *Self, ctx: *zig_serve.HttpContext) !void {
         try self.addAccessControl(ctx);
         var path = ctx.request.url;
@@ -597,26 +604,28 @@ pub const Provider = struct {
             for (self.embedded.items) |embedded_dir| {
                 if (try embedded_dir.resolveAddressPath(self.allocator, path)) |sub_path| {
                     defer self.allocator.free(sub_path);
-                    if (std.fs.cwd().openFile(sub_path, .{})) |file| {
-                        defer file.close();
-                        const content = file.readToEndAlloc(self.allocator, 10 * 1024 * 1024) catch |err| {
-                            try ctx.response.setHeader("Content-Type", "text/plain");
-                            try ctx.response.setStatusCode(.internal_server_error);
+                    if (fdIsValid(self.cwd.fd)) { // is not valid after closed application
+                        if (self.cwd.openFile(sub_path, .{})) |file| {
+                            defer file.close();
+                            const content = file.readToEndAlloc(self.allocator, 10 * 1024 * 1024) catch |err| {
+                                try ctx.response.setHeader("Content-Type", "text/plain");
+                                try ctx.response.setStatusCode(.internal_server_error);
+                                var writer = try ctx.response.writer();
+                                try writer.print("Could not read file {s}: {}\n", .{ path, err });
+                                return;
+                            };
+                            try ctx.response.setHeader("Content-Type", embedded_dir.resolveMime(path));
+                            defer self.allocator.free(content);
                             var writer = try ctx.response.writer();
-                            try writer.print("Could not read file {s}: {}\n", .{ path, err });
+                            try writer.writeAll(content);
                             return;
-                        };
-                        try ctx.response.setHeader("Content-Type", embedded_dir.resolveMime(path));
-                        defer self.allocator.free(content);
-                        var writer = try ctx.response.writer();
-                        try writer.writeAll(content);
-                        return;
-                    } else |err| {
-                        try ctx.response.setHeader("Content-Type", "text/plain");
-                        try ctx.response.setStatusCode(.not_found);
-                        var writer = try ctx.response.writer();
-                        try writer.print("Could not open file {s}: {}\n", .{ path, err });
-                        return;
+                        } else |err| {
+                            try ctx.response.setHeader("Content-Type", "text/plain");
+                            try ctx.response.setStatusCode(.not_found);
+                            var writer = try ctx.response.writer();
+                            try writer.print("Could not open file {s}: {}\n", .{ path, err });
+                            return;
+                        }
                     }
                 }
             }
