@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const zig_serve = @import("serve");
 const log = std.log.scoped(.Positron);
@@ -579,7 +580,10 @@ pub const Provider = struct {
     }
 
     fn fdIsValid(fd: std.posix.fd_t) bool {
-        return std.posix.system.fcntl(fd, std.posix.F.GETFD) != -1;
+        return if (builtin.os.tag == .windows)
+            true
+        else
+            std.posix.system.fcntl(fd, std.posix.F.GETFD) != -1;
     }
 
     fn handleRequest(self: *Self, ctx: *zig_serve.HttpContext) !void {
