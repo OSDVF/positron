@@ -594,16 +594,20 @@ pub const Provider = struct {
         }
 
         var best_match: ?*Route = null;
+        var exact_match = false;
         for (self.routes.items) |*route| {
             if (std.mem.startsWith(u8, path, route.prefix[self.base_url.len..])) {
                 if (best_match == null or best_match.?.prefix.len < route.prefix.len) {
                     best_match = route;
                 }
+                if (path.len == route.prefix.len - self.base_url.len) {
+                    exact_match = true;
+                    break;
+                }
             }
         }
-
-        if (best_match) |route| {
-            try route.handler(self, route, ctx);
+        if (exact_match) {
+            try best_match.?.handler(self, best_match.?, ctx);
         } else {
             for (self.embedded.items) |embedded_dir| {
                 if (try embedded_dir.resolveAddressPath(self.allocator, path)) |sub_path| {
@@ -623,7 +627,7 @@ pub const Provider = struct {
                             var writer = try ctx.response.writer();
                             try writer.writeAll(content);
                             return;
-                        } else |err| {
+                        } else |err| if (best_match == null) {
                             try ctx.response.setHeader("Content-Type", "text/plain");
                             try ctx.response.setStatusCode(.not_found);
                             var writer = try ctx.response.writer();
@@ -634,7 +638,10 @@ pub const Provider = struct {
                 }
             }
 
-            try defaultRoute(self, undefined, ctx);
+            if (best_match) |route|
+                try route.handler(self, route, ctx)
+            else
+                try defaultRoute(self, undefined, ctx);
         }
     }
 };
