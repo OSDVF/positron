@@ -34,6 +34,10 @@ public:
     m_webview = webkit_web_view_new();
     WebKitUserContentManager *manager =
         webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(m_webview));
+
+    // link with target _blank click - open in system browser
+    g_signal_connect(WEBKIT_WEB_VIEW(m_webview), "create", G_CALLBACK(external_window), this);
+    
     g_signal_connect(manager, "script-message-received::external",
                      G_CALLBACK(+[](WebKitUserContentManager *,
                                     WebKitJavascriptResult *r, gpointer arg) {
@@ -108,10 +112,17 @@ public:
   }
 
   void set_icon(const std::string icon) {
-    GtkIconTheme *theme = gtk_icon_theme_get_default();
-    if (gtk_icon_theme_has_icon(theme, icon.c_str())) {
-        gtk_window_set_icon_name(GTK_WINDOW(m_window), icon.c_str());
-        gtk_window_set_default_icon_name(icon.c_str());
+    GtkIconTheme *icon_theme = gtk_icon_theme_get_default();
+    gtk_icon_theme_append_search_path(icon_theme, g_path_get_dirname(icon.c_str())); 
+    // get icon name as basename without extension
+    size_t pos = icon.find_last_of(".");
+    if (pos == std::string::npos) {
+      pos = icon.length();
+    }
+    const gchar *basename = g_path_get_basename(icon.substr(0, pos).c_str());
+    if (gtk_icon_theme_has_icon(icon_theme, basename)) {
+        gtk_window_set_icon_name(GTK_WINDOW(m_window), basename);
+        gtk_window_set_default_icon_name(basename);
     }
     else {
       GError* error = NULL;
@@ -126,6 +137,17 @@ public:
         g_error_free(error);
       }
     }
+  }
+
+  static bool external_window(WebKitWebView *wv, WebKitNavigationAction *a, gpointer arg) {
+    WebKitNavigationAction *action = a;
+    WebKitURIRequest *request = webkit_navigation_action_get_request(action);
+    const gchar *uri = webkit_uri_request_get_uri(request);
+    if (uri) {
+      gtk_show_uri_on_window(NULL, uri, GDK_CURRENT_TIME, NULL);
+      return true;
+    }
+    return false;
   }
 
   void navigate(const std::string url) {
