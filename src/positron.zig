@@ -621,7 +621,7 @@ pub const Provider = struct {
                     if (fdIsValid(self.cwd.fd)) { // is not valid after closed application
                         if (self.cwd.openFile(sub_path, .{})) |file| {
                             defer file.close();
-                            const content = file.readToEndAlloc(self.allocator, 10 * 1024 * 1024) catch |err| {
+                            const content = file.readToEndAlloc(self.allocator, 20 * 1024 * 1024) catch |err| {
                                 try ctx.response.setHeader("Content-Type", "text/plain");
                                 try ctx.response.setStatusCode(.internal_server_error);
                                 var writer = try ctx.response.writer();
