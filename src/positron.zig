@@ -355,6 +355,7 @@ pub const Provider = struct {
     embedded: std.ArrayList(EmbedDir),
     allowed_origins: ?std.BufSet = null,
     cwd: std.fs.Dir,
+    max_file_size: usize = 20 * 1024 * 1024,
 
     pub fn create(allocator: std.mem.Allocator, port: u16) !*Self {
         const provider = try allocator.create(Self);
@@ -460,7 +461,7 @@ pub const Provider = struct {
                 const handler = r.getContext(@This());
                 if (std.fs.cwd().openFile(handler.path, .{})) |file| {
                     defer file.close();
-                    const content = file.readToEndAlloc(provider.allocator, 10 * 1024 * 1024) catch |err| {
+                    const content = file.readToEndAlloc(provider.allocator, provider.max_file_size) catch |err| {
                         try context.response.setHeader("Content-Type", "text/plain");
                         try context.response.setStatusCode(.internal_server_error);
                         var writer = try context.response.writer();
@@ -621,7 +622,7 @@ pub const Provider = struct {
                     if (fdIsValid(self.cwd.fd)) { // is not valid after closed application
                         if (self.cwd.openFile(sub_path, .{})) |file| {
                             defer file.close();
-                            const content = file.readToEndAlloc(self.allocator, 20 * 1024 * 1024) catch |err| {
+                            const content = file.readToEndAlloc(self.allocator, self.max_file_size) catch |err| {
                                 try ctx.response.setHeader("Content-Type", "text/plain");
                                 try ctx.response.setStatusCode(.internal_server_error);
                                 var writer = try ctx.response.writer();
