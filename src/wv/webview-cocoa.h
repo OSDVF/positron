@@ -197,6 +197,14 @@ public:
     }
     ((void (*)(id, SEL))objc_msgSend)(m_window, "center"_sel);
   }
+
+  void set_icon(const std::string icon) {
+    ((void (*)(id, SEL, id))objc_msgSend)(
+        m_window, "setRepresentedURL:"_sel,
+        ((id(*)(id, SEL, const char *))objc_msgSend)(
+            "NSURL"_cls, "URLWithString:"_sel, icon.c_str()));
+  }
+
   void navigate(const std::string url) {
     auto nsurl = ((id(*)(id, SEL, id))objc_msgSend)(
         "NSURL"_cls, "URLWithString:"_sel,

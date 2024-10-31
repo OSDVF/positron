@@ -18,31 +18,32 @@ inline fn sdkRoot() []const u8 {
     }
 }
 
-pub fn getServeModule(b: *std.Build) *std.Build.Module {
+pub fn getServeModule(b: *std.Build, target: ?std.Build.ResolvedTarget) *std.Build.Module {
     return b.addModule("serve", .{
-        .root_source_file = .{ .path = sdkRoot() ++ "/vendor/serve/src/serve.zig" },
+        .root_source_file = .{ .cwd_relative = sdkRoot() ++ "/vendor/serve/src/serve.zig" },
         .imports = &.{
             .{
                 .name = "uri",
                 .module = b.createModule(.{
-                    .root_source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/uri/uri.zig" },
+                    .root_source_file = .{ .cwd_relative = sdkRoot() ++ "/vendor/serve/vendor/uri/uri.zig" },
                 }),
             },
             .{
                 .name = "network",
                 .module = b.createModule(.{
-                    .root_source_file = .{ .path = sdkRoot() ++ "/vendor/serve/vendor/network/network.zig" },
+                    .root_source_file = .{ .cwd_relative = sdkRoot() ++ "/vendor/serve/vendor/network/network.zig" },
                 }),
             },
         },
+        .target = target,
     });
 }
 
-pub fn getPackage(b: *std.Build, name: []const u8) *std.Build.Module {
+pub fn getPackage(b: *std.Build, name: []const u8, target: ?std.Build.ResolvedTarget) *std.Build.Module {
     return b.addModule(name, .{
-        .root_source_file = .{ .path = sdkRoot() ++ "/src/positron.zig" },
+        .root_source_file = .{ .cwd_relative = sdkRoot() ++ "/src/positron.zig" },
         .imports = &.{
-            .{ .name = "serve", .module = getServeModule(b) },
+            .{ .name = "serve", .module = getServeModule(b, target) },
         },
     });
 }
@@ -63,7 +64,7 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
     compileStep.linkSystemLibrary("c++");
 
     // make webview library standalone
-    compileStep.addCSourceFile(.{ .file = .{ .path = sdkRoot() ++ "/src/wv/webview.cpp" }, .flags = &[_][]const u8{
+    compileStep.addCSourceFile(.{ .file = .{ .cwd_relative = sdkRoot() ++ "/src/wv/webview.cpp" }, .flags = &[_][]const u8{
         "-std=c++17",
         "-fno-sanitize=undefined",
         "-Bsymbolic",
@@ -72,11 +73,11 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
     if (compileStep.rootModuleTarget().os.tag == .windows) {
 
         // Attempts to fix windows building:
-        compileStep.addIncludePath(.{ .path = sdkRoot() ++ "/vendor/winsdk" });
-        compileStep.addIncludePath(.{ .path = sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native/include" });
+        compileStep.addIncludePath(.{ .cwd_relative = sdkRoot() ++ "/vendor/winsdk" });
+        compileStep.addIncludePath(.{ .cwd_relative = sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native/include" });
         const arch = archName(compileStep.rootModuleTarget().cpu.arch);
         const alloc = compileStep.step.owner.allocator; //alias
-        compileStep.addLibraryPath(.{ .path = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch }) catch @panic("OOM") });
+        compileStep.addLibraryPath(.{ .cwd_relative = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch }) catch @panic("OOM") });
         compileStep.linkSystemLibrary("user32");
         compileStep.linkSystemLibrary("ole32");
         compileStep.linkSystemLibrary("oleaut32");
@@ -84,9 +85,9 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
         if (static) {
             compileStep.linkSystemLibrary("WebView2LoaderStatic");
         } else {
-            compileStep.addObjectFile(.{ .path = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch, "WebView2Loader.dll.lib" }) catch @panic("OOM") });
+            compileStep.addObjectFile(.{ .cwd_relative = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch, "WebView2Loader.dll.lib" }) catch @panic("OOM") });
             compileStep.step.dependOn(&compileStep.step.owner.addInstallLibFile(
-                .{ .path = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch, "WebView2Loader.dll" }) catch @panic("OOM") },
+                .{ .cwd_relative = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch, "WebView2Loader.dll" }) catch @panic("OOM") },
                 "WebView2Loader.dll",
             ).step);
         }
@@ -105,7 +106,7 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
         //# Windows (x64)
         //$ c++ main.cc -mwindows -L./dll/x64 -lwebview -lWebView2Loader -o webview-example.exe
         .windows => {
-            compileStep.addLibraryPath(.{ .path = sdkRoot() ++ "/vendor/webview/dll/x64" });
+            compileStep.addLibraryPath(.{ .cwd_relative = sdkRoot() ++ "/vendor/webview/dll/x64" });
         },
         //# MacOS
         //$ c++ main.cc -std=c++11 -framework WebKit -o webview-example

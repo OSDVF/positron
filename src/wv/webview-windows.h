@@ -231,6 +231,16 @@ public:
     }
   }
 
+  void set_icon(const std::string icon)
+  {
+    auto hIcon = (HICON)LoadImage(NULL, icon.c_str(), IMAGE_ICON, 0, 0,
+                                  LR_LOADFROMFILE | LR_DEFAULTSIZE);
+    if (hIcon)
+    {
+      SendMessage(m_window, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+    }
+  }
+
   void navigate(const std::string url) { m_browser->navigate(url); }
   void eval(const std::string js) { m_browser->eval(js); }
   void init(const std::string js) { m_browser->init(js); }

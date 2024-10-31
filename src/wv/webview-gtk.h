@@ -107,6 +107,27 @@ public:
     }
   }
 
+  void set_icon(const std::string icon) {
+    GtkIconTheme *theme = gtk_icon_theme_get_default();
+    if (gtk_icon_theme_has_icon(theme, icon.c_str())) {
+        gtk_window_set_icon_name(GTK_WINDOW(m_window), icon.c_str());
+        gtk_window_set_default_icon_name(icon.c_str());
+    }
+    else {
+      GError* error = NULL;
+      gtk_window_set_icon_from_file(GTK_WINDOW(m_window), icon.c_str(), &error);
+      if (error != NULL) {
+        fprintf(stderr, "Error setting icon: %s\n", error->message);
+        g_error_free(error);
+      }
+      gtk_window_set_default_icon_from_file(icon.c_str(), &error);
+      if (error != NULL) {
+        fprintf(stderr, "Error setting default icon: %s\n", error->message);
+        g_error_free(error);
+      }
+    }
+  }
+
   void navigate(const std::string url) {
     webkit_web_view_load_uri(WEBKIT_WEB_VIEW(m_webview), url.c_str());
   }

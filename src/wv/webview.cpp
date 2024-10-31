@@ -444,6 +444,10 @@ WEBVIEW_API void webview_set_size(webview_t w, int width, int height,
   static_cast<webview *>(w)->set_size(width, height, hints);
 }
 
+WEBVIEW_API void webview_set_icon(webview_t w, const char *path) {
+  static_cast<webview *>(w)->set_icon(path);
+}
+
 WEBVIEW_API void webview_navigate(webview_t w, const char *url) {
   static_cast<webview *>(w)->navigate(url);
 }

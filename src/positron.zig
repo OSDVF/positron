@@ -59,6 +59,10 @@ pub const View = opaque {
         webview_set_size(self, width, height, @intFromEnum(hint));
     }
 
+    pub fn setIcon(self: *Self, icon: [:0]const u8) void {
+        webview_set_icon(self, icon.ptr);
+    }
+
     /// Navigates webview to the given URL. URL may be a data URI, i.e.
     /// `data:text/text,<html>...</html>`. It is often ok not to url-encode it
     /// properly, webview will re-encode it for you.
@@ -261,6 +265,7 @@ pub const View = opaque {
     extern fn webview_get_window(w: *Self) ?*anyopaque;
     extern fn webview_set_title(w: *Self, title: [*:0]const u8) void;
     extern fn webview_set_size(w: *Self, width: c_int, height: c_int, hints: c_int) void;
+    extern fn webview_set_icon(w: *Self, icon: [*:0]const u8) void;
     extern fn webview_navigate(w: *Self, url: [*:0]const u8) void;
     extern fn webview_init(w: *Self, js: [*:0]const u8) void;
     extern fn webview_eval(w: *Self, js: [*:0]const u8) void;
@@ -293,6 +298,7 @@ test {
     _ = View.getWindow;
     _ = View.setTitle;
     _ = View.setSize;
+    _ = View.setIcon;
     _ = View.navigate;
     _ = View.init;
     _ = View.eval;

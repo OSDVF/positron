@@ -75,6 +75,8 @@ WEBVIEW_API void webview_set_title(webview_t w, const char *title);
 WEBVIEW_API void webview_set_size(webview_t w, int width, int height,
                                   int hints);
 
+WEBVIEW_API void webview_set_icon(webview_t w, const char *path);
+
 // Navigates webview to the given URL. URL may be a data URI, i.e.
 // "data:text/text,<html>...</html>". It is often ok not to url-encode it
 // properly, webview will re-encode it for you.
