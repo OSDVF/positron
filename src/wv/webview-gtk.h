@@ -139,15 +139,14 @@ public:
     }
   }
 
-  static bool external_window(WebKitWebView *wv, WebKitNavigationAction *a, gpointer arg) {
+  static GtkWidget* external_window(WebKitWebView *wv, WebKitNavigationAction *a, gpointer arg) {
     WebKitNavigationAction *action = a;
     WebKitURIRequest *request = webkit_navigation_action_get_request(action);
     const gchar *uri = webkit_uri_request_get_uri(request);
     if (uri) {
       gtk_show_uri_on_window(NULL, uri, GDK_CURRENT_TIME, NULL);
-      return true;
     }
-    return false;
+    return NULL;
   }
 
   void navigate(const std::string url) {
