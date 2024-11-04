@@ -86,8 +86,9 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
             compileStep.linkSystemLibrary("WebView2LoaderStatic");
         } else {
             compileStep.addObjectFile(.{ .cwd_relative = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch, "WebView2Loader.dll.lib" }) catch @panic("OOM") });
-            compileStep.step.dependOn(&compileStep.step.owner.addInstallLibFile(
+            compileStep.step.dependOn(&compileStep.step.owner.addInstallFileWithDir(
                 .{ .cwd_relative = std.fs.path.join(alloc, &.{ sdkRoot() ++ "/vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", arch, "WebView2Loader.dll" }) catch @panic("OOM") },
+                if (compileStep.rootModuleTarget().os.tag == .windows) .bin else .lib,
                 "WebView2Loader.dll",
             ).step);
         }
