@@ -404,7 +404,7 @@ private:
 WEBVIEW_API webview_t webview_create(int debug, void *wnd) {
   try {
     auto wv = new webview(debug, wnd);
-#ifdef defined(WEBVIEW_EDGE)
+#ifdef WEBVIEW_EDGE
     if (wv->m_browser == nullptr) {
       delete wv;
       return nullptr;

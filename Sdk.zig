@@ -60,9 +60,6 @@ pub fn archName(arch: std.Target.Cpu.Arch) []const u8 {
 /// Links positron to `exe`. `exe` must have its final `target` already set!
 /// `backend` selects the backend to be used, use `null` for a good default.
 pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, static: bool) void {
-    compileStep.linkLibC();
-    compileStep.linkSystemLibrary("c++");
-
     // make webview library standalone
     compileStep.addCSourceFile(.{ .file = .{ .cwd_relative = sdkRoot() ++ "/src/wv/webview.cpp" }, .flags = &[_][]const u8{
         "-std=c++17",
