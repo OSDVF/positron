@@ -26,8 +26,6 @@
 
 #define WKUserScriptInjectionTimeAtDocumentStart 0
 
-namespace webview {
-
 // Helpers to avoid too much typing
 id operator"" _cls(const char *s, std::size_t) { return (id)objc_getClass(s); }
 SEL operator"" _sel(const char *s, std::size_t) { return sel_registerName(s); }
@@ -245,5 +243,3 @@ private:
 };
 
 using browser_engine = cocoa_wkwebview_engine;
-
-} // namespace webview
