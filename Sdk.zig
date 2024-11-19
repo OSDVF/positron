@@ -115,7 +115,6 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
         //$ c++ main.cc `pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.0` -o webview-example
         .linux => {
             compileStep.linkSystemLibrary2("gtk+-3.0", .{ .weak = true });
-            compileStep.linkSystemLibrary2("webkit2gtk-4.0", .{ .weak = true });
         },
         else => std.debug.panic("unsupported os: {s}", .{@tagName(compileStep.rootModuleTarget().os.tag)}),
     }
