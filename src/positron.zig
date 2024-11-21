@@ -94,7 +94,7 @@ pub const View = opaque {
         const Binder = struct {
             fn c_callback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
                 callback(
-                    @as(Context, @ptrCast(arg)),
+                    @as(Context, @alignCast(@ptrCast(arg))),
                     std.mem.sliceTo(seq, 0),
                     std.mem.sliceTo(req, 0),
                 );

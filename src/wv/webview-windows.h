@@ -57,7 +57,7 @@ public:
 class browser_engine
 {
 public:
-  static LRESULT wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+  static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
   {
     auto w = (browser_engine *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
     switch (msg)
