@@ -38,7 +38,7 @@ pub const View = opaque {
 
     /// Posts a function to be executed on the main thread. You normally do not need
     /// to call this function, unless you want to tweak the native window.
-    pub fn dispatch(self: *Self, func: *const fn (*Self, ?*const anyopaque) callconv(.C) void, arg: ?*anyopaque) void {
+    pub fn dispatch(self: *Self, func: *const fn (*Self, ?*const anyopaque) callconv(.c) void, arg: ?*anyopaque) void {
         webview_dispatch(self, func, arg);
     }
 
@@ -92,7 +92,7 @@ pub const View = opaque {
     pub fn bindRaw(self: *Self, name: [:0]const u8, context: anytype, comptime callback: fn (ctx: @TypeOf(context), seq: [:0]const u8, req: [:0]const u8) void) void {
         const Context = @TypeOf(context);
         const Binder = struct {
-            fn c_callback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
+            fn c_callback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
                 callback(
                     @as(Context, @alignCast(@ptrCast(arg))),
                     std.mem.sliceTo(seq, 0),
@@ -109,9 +109,9 @@ pub const View = opaque {
     /// all other parameters must be deserializable to JSON. The return value might be a error union,
     /// in which case the error is returned to the JS promise. Otherwise, a normal result is serialized to
     /// JSON and then sent back to JS.
-    pub fn bind(self: *Self, name: [:0]const u8, comptime callback: anytype, context: @typeInfo(@TypeOf(callback)).Fn.params[0].type.?) void {
+    pub fn bind(self: *Self, name: [:0]const u8, comptime callback: anytype, context: @typeInfo(@TypeOf(callback)).@"fn".params[0].type.?) void {
         const Fn = @TypeOf(callback);
-        const function_info = @typeInfo(Fn).Fn;
+        const function_info = @typeInfo(Fn).@"fn";
 
         if (function_info.params.len < 1)
             @compileError("Function must take at least the context argument!");
@@ -170,7 +170,7 @@ pub const View = opaque {
                 }
             }
 
-            fn c_callback(seq0: [*c]const u8, req0: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
+            fn c_callback(seq0: [*c]const u8, req0: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
                 const cb_context = @as(Context, @ptrCast(@alignCast(arg)));
 
                 const view = getWebView(cb_context);
@@ -229,7 +229,7 @@ pub const View = opaque {
 
                 // std.debug.print("result: {}\n", .{result});
 
-                if (return_info == .ErrorUnion) {
+                if (return_info == .error_union) {
                     if (result) |value| {
                         return successResponse(view, seq, value);
                     } else |err| {
@@ -261,7 +261,7 @@ pub const View = opaque {
     extern fn webview_destroy(w: *Self) void;
     extern fn webview_run(w: *Self) void;
     extern fn webview_terminate(w: *Self) void;
-    extern fn webview_dispatch(w: *Self, func: ?*const fn (*Self, ?*anyopaque) callconv(.C) void, arg: ?*anyopaque) void;
+    extern fn webview_dispatch(w: *Self, func: ?*const fn (*Self, ?*anyopaque) callconv(.c) void, arg: ?*anyopaque) void;
     extern fn webview_get_window(w: *Self) ?*anyopaque;
     extern fn webview_set_title(w: *Self, title: [*:0]const u8) void;
     extern fn webview_set_size(w: *Self, width: c_int, height: c_int, hints: c_int) void;
@@ -269,7 +269,7 @@ pub const View = opaque {
     extern fn webview_navigate(w: *Self, url: [*:0]const u8) void;
     extern fn webview_init(w: *Self, js: [*:0]const u8) void;
     extern fn webview_eval(w: *Self, js: [*:0]const u8) void;
-    extern fn webview_bind(w: *Self, name: [*:0]const u8, func: *const fn ([*c]const u8, [*c]const u8, ?*anyopaque) callconv(.C) void, arg: ?*anyopaque) void;
+    extern fn webview_bind(w: *Self, name: [*:0]const u8, func: *const fn ([*c]const u8, [*c]const u8, ?*anyopaque) callconv(.c) void, arg: ?*anyopaque) void;
     extern fn webview_return(w: *Self, seq: [*:0]const u8, status: c_int, result: [*c]const u8) void;
 };
 
