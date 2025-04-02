@@ -94,9 +94,9 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
 
     if (backend) |b| {
         switch (b) {
-            .gtk => compileStep.defineCMacro("WEBVIEW_GTK", null),
-            .cocoa => compileStep.defineCMacro("WEBVIEW_COCOA", null),
-            .edge => compileStep.defineCMacro("WEBVIEW_EDGE", null),
+            .gtk => compileStep.root_module.addCMacro("WEBVIEW_GTK", ""),
+            .cocoa => compileStep.root_module.addCMacro("WEBVIEW_COCOA", ""),
+            .edge => compileStep.root_module.addCMacro("WEBVIEW_EDGE", ""),
         }
     }
 
@@ -109,7 +109,7 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
         //# MacOS
         //$ c++ main.cc -std=c++11 -framework WebKit -o webview-example
         .macos => {
-            compileStep.linkFrameworkWeak("WebKit");
+            compileStep.linkFramework("WebKit");
         },
         //# Linux
         //$ c++ main.cc `pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.0` -o webview-example
