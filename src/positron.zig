@@ -311,10 +311,10 @@ pub const Provider = struct {
     const Self = @This();
 
     pub const Route = struct {
-        pub const Error = error{OutOfMemory} || zig_serve.HttpResponse.WriteError;
+        pub const Error = error{OutOfMemory} || zig_serve.http.Response.WriteError;
 
         const GenericPointer = opaque {};
-        const RouteHandler = *const fn (*Provider, *Route, *zig_serve.HttpContext) Error!void;
+        const RouteHandler = *const fn (*Provider, *Route, *zig_serve.http.Context) Error!void;
 
         arena: std.heap.ArenaAllocator,
         prefix: [:0]const u8,
@@ -346,10 +346,10 @@ pub const Provider = struct {
         }
     };
 
-    pub const AdditionalHandler = *const fn (*Provider, ?*Route, *zig_serve.HttpContext) Route.Error!void;
+    pub const AdditionalHandler = *const fn (*Provider, ?*Route, *zig_serve.http.Context) Route.Error!void;
 
     allocator: std.mem.Allocator,
-    server: zig_serve.HttpListener,
+    server: zig_serve.http.Listener,
     base_url: []const u8,
     not_found_text: ?[]const u8 = null,
     routes: std.ArrayList(Route),
@@ -374,7 +374,7 @@ pub const Provider = struct {
         };
         errdefer provider.routes.deinit();
 
-        provider.server = try zig_serve.HttpListener.init(allocator);
+        provider.server = try zig_serve.http.Listener.init(allocator);
         errdefer provider.server.deinit();
 
         try provider.server.addEndpoint(zig_serve.IP.loopback_v4, port);
@@ -412,7 +412,7 @@ pub const Provider = struct {
         std.sort.sort(Route, self.routes.items, {}, compareRoute);
     }
 
-    fn defaultRoute(self: *Provider, route: *Route, context: *zig_serve.HttpContext) Route.Error!void {
+    fn defaultRoute(self: *Provider, route: *Route, context: *zig_serve.http.Context) Route.Error!void {
         _ = route;
 
         try context.response.setHeader("Content-Type", "text/html");
@@ -461,7 +461,7 @@ pub const Provider = struct {
         allowed_origins: ?std.BufSet,
         additional_handler: ?AdditionalHandler = null,
 
-        fn handle(provider: *Provider, r: *Route, context: *zig_serve.HttpContext) Route.Error!void {
+        fn handle(provider: *Provider, r: *Route, context: *zig_serve.http.Context) Route.Error!void {
             const handler = r.getContext(@This());
             if (std.fs.cwd().openFile(handler.path, .{})) |file| {
                 defer file.close();
@@ -509,7 +509,7 @@ pub const Provider = struct {
         allowed_origins: ?std.BufSet,
         additional_handler: ?AdditionalHandler = null,
 
-        pub fn handle(p: *Provider, r: *Route, context: *zig_serve.HttpContext) Route.Error!void {
+        pub fn handle(p: *Provider, r: *Route, context: *zig_serve.http.Context) Route.Error!void {
             const handler = r.getContext(@This());
 
             try context.response.setHeader("Content-Type", handler.mime_type);
@@ -555,7 +555,7 @@ pub const Provider = struct {
         return handler;
     }
 
-    fn addAccessControl(self: *Self, context: *zig_serve.HttpContext) !void {
+    fn addAccessControl(self: *Self, context: *zig_serve.http.Context) !void {
         if (self.allowed_origins) |ao| {
             if (context.request.headers.get("Origin")) |o| {
                 if (ao.contains(o)) {
@@ -597,7 +597,7 @@ pub const Provider = struct {
             std.posix.system.fcntl(fd, std.posix.F.GETFD) != -1;
     }
 
-    fn handleRequest(self: *Self, ctx: *zig_serve.HttpContext) !void {
+    fn handleRequest(self: *Self, ctx: *zig_serve.http.Context) !void {
         try self.addAccessControl(ctx);
         var path = ctx.request.url;
         if (std.mem.indexOfScalar(u8, path, '?')) |index| {
