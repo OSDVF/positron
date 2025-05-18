@@ -1,14 +1,13 @@
 const std = @import("std");
-const pkgs = @import(".zpm/pkgs.zig");
 const Sdk = @import("Sdk.zig");
 const ZigServe = @import("vendor/serve/build.zig");
 
-pub fn build(b: *std.Build.Builder) void {
+pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardOptimizeOption(.{});
     const backend = b.option(Sdk.Backend, "backend", "Configures the backend that should be used for webview.");
 
-    const wolfssl = ZigServe.createWolfSSL(b, target);
+    const wolfssl = ZigServe.createWolfSSL(b, target.query, mode);
 
     const minimal_exe = b.addExecutable(.{
         .name = "positron-minimal",

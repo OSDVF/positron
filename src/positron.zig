@@ -171,7 +171,7 @@ pub const View = opaque {
             }
 
             fn c_callback(seq0: [*c]const u8, req0: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
-                const cb_context = @as(Context, @ptrCast(@alignCast(arg)));
+                const cb_context: Context = @ptrCast(@alignCast(arg));
 
                 const view = getWebView(cb_context);
 

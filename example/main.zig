@@ -113,7 +113,7 @@ fn sendRandomMessagesInBackground(app: *App) !void {
     while (true) {
         const time_seconds = 1.5 + 5.5 * rng.float(f32);
 
-        const ns = @as(u64, @intFromFloat(std.time.ns_per_s * time_seconds));
+        const ns: u64 = @intFromFloat(std.time.ns_per_s * time_seconds);
 
         std.time.sleep(ns);
 

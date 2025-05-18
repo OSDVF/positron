@@ -1,4 +1,3 @@
-const std = @import("std");
 const wv = @import("positron");
 
 pub fn main() !void {
