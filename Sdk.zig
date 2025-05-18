@@ -103,7 +103,7 @@ pub fn linkPositron(compileStep: *std.Build.Step.Compile, backend: ?Backend, sta
         //# Windows (x64)
         //$ c++ main.cc -mwindows -L./dll/x64 -lwebview -lWebView2Loader -o webview-example.exe
         .windows => {
-            compileStep.addLibraryPath(.{ .cwd_relative = sdkRoot() ++ "/vendor/webview/dll/x64" });
+            //compileStep.addLibraryPath(.{ .cwd_relative = sdkRoot() ++ "/vendor/webview/dll/x64" });
         },
         //# MacOS
         //$ c++ main.cc -std=c++11 -framework WebKit -o webview-example
