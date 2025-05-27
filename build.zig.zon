@@ -1,0 +1,12 @@
+.{
+    .name = .positron,
+    .paths = .{""},
+    .version = "0.0.0",
+    .fingerprint = 0x565fa86473deb5e5,
+    .dependencies = .{
+        .httpz = .{
+            .url = "git+https://github.com/karlseguin/http.zig#bf66b28690967fec187bc3074ebdd2cf748e172e",
+            .hash = "httpz-0.0.0-PNVzrDm1BgBS1NqfP2uTPocAxDSTjZNJKr41Q_S63cFB",
+        },
+    },
+}

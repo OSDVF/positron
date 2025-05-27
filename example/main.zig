@@ -3,7 +3,7 @@ const wv = @import("positron");
 
 const App = struct {
     arena: std.heap.ArenaAllocator,
-    provider: *wv.Provider,
+    provider: *wv.Provider(void),
     view: *wv.View,
 
     user_name: ?[]const u8,
@@ -16,7 +16,7 @@ const App = struct {
 };
 
 pub fn main() !void {
-    const provider = try wv.Provider.create(std.heap.c_allocator);
+    const provider = try wv.Provider(void).create(std.heap.c_allocator, .{}, .{}, {});
     defer provider.destroy();
     const view = try wv.View.create((@import("builtin").mode == .Debug), null);
     defer view.destroy();
@@ -29,13 +29,13 @@ pub fn main() !void {
         .shutdown_thread = 0,
     };
 
-    std.log.info("base uri: {s}", .{app.provider.base_url});
+    std.log.info("base uri: {s}", .{app.provider.server.handler.base_url});
 
     try app.provider.addContent("/login.htm", "text/html", @embedFile("login.htm"));
     try app.provider.addContent("/app.htm", "text/html", @embedFile("app.htm"));
     try app.provider.addContent("/design.css", "text/css", @embedFile("design.css"));
 
-    const provide_thread = try std.Thread.spawn(.{}, wv.Provider.run, .{app.provider});
+    const provide_thread = try std.Thread.spawn(.{}, wv.Provider(void).run, .{app.provider});
     provide_thread.detach();
 
     std.log.info("provider ready.", .{});
@@ -46,7 +46,8 @@ pub fn main() !void {
     app.view.bind("performLogin", performLogin, &app);
     app.view.bind("sendMessage", sendMessage, &app);
 
-    app.view.navigate(app.provider.getUri("/login.htm") orelse unreachable);
+    const base = try app.provider.getUriAlloc("/login.htm");
+    app.view.navigate(base.?);
 
     std.log.info("webview ready.", .{});
 
@@ -58,7 +59,7 @@ pub fn main() !void {
 
     app.view.run();
 
-    @atomicStore(u32, &app.shutdown_thread, 1, .SeqCst);
+    @atomicStore(u32, &app.shutdown_thread, 1, .seq_cst);
 }
 
 fn performLogin(app: *App, user_name: []const u8, password: []const u8) !bool {
@@ -69,7 +70,8 @@ fn performLogin(app: *App, user_name: []const u8, password: []const u8) !bool {
 
     app.user_name = try app.arena.allocator().dupe(u8, user_name);
 
-    app.view.navigate(app.provider.getUri("/app.htm") orelse unreachable);
+    const base = try app.provider.getUriAlloc("/app.htm");
+    app.view.navigate(base.?);
 
     return true;
 }
@@ -108,7 +110,7 @@ fn appendMessage(app: *App, message: Message) !void {
 }
 
 fn sendRandomMessagesInBackground(app: *App) !void {
-    var random = std.rand.DefaultPrng.init(@intFromPtr(&app));
+    var random = std.Random.DefaultPrng.init(@intFromPtr(&app));
     const rng = random.random();
     while (true) {
         const time_seconds = 1.5 + 5.5 * rng.float(f32);
@@ -117,9 +119,9 @@ fn sendRandomMessagesInBackground(app: *App) !void {
 
         std.time.sleep(ns);
 
-        if (@atomicLoad(u32, &app.shutdown_thread, .SeqCst) != 0) {
+        if (@atomicLoad(u32, &app.shutdown_thread, .seq_cst) != 0) {
             std.log.info("Disable Faker Thread", .{});
-            @atomicStore(u32, &app.shutdown_thread, 2, .SeqCst);
+            @atomicStore(u32, &app.shutdown_thread, 2, .seq_cst);
             return;
         }
 

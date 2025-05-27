@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const zig_serve = @import("serve");
+const httpz = @import("httpz");
 const log = std.log.scoped(.Positron);
 
 /// A web browser window that one can interact with.
@@ -171,7 +171,7 @@ pub const View = opaque {
             }
 
             fn c_callback(seq0: [*c]const u8, req0: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
-                const cb_context: Context = @ptrCast(@alignCast(arg));
+                const cb_context: Context = @alignCast(@ptrCast(arg));
 
                 const view = getWebView(cb_context);
 
@@ -307,355 +307,296 @@ test {
     _ = View.@"return";
 }
 
-pub const Provider = struct {
-    const Self = @This();
+fn HandlerWrapper(comptime T: type) type {
+    return struct {
+        allowed_origins: ?std.BufSet = null,
+        base_url: []const u8,
+        cwd: std.fs.Dir,
+        not_found_text: ?[]const u8 = null,
 
-    pub const Route = struct {
-        pub const Error = error{OutOfMemory} || zig_serve.http.Response.WriteError;
+        wrapped: T,
 
-        const GenericPointer = opaque {};
-        const RouteHandler = *const fn (*Provider, *Route, *zig_serve.http.Context) Error!void;
-
-        arena: std.heap.ArenaAllocator,
-        prefix: [:0]const u8,
-
-        handler: RouteHandler,
-        context: *GenericPointer,
-        pub fn getContext(self: Route, comptime T: type) *T {
-            return @as(*T, @ptrCast(@alignCast(self.context)));
-        }
-
-        pub fn deinit(self: *Route) void {
-            self.arena.deinit();
-            self.* = undefined;
-        }
-    };
-
-    pub const EmbedDir = struct {
-        address: []const u8,
-        path: []const u8,
-        resolveMime: *const fn (path: []const u8) []const u8,
-        fn hasAddress(self: *const @This(), address: []const u8) bool {
-            return std.ascii.startsWithIgnoreCase(address, self.address);
-        }
-        fn resolveAddressPath(self: *const @This(), allocator: std.mem.Allocator, address: []const u8) !?[]const u8 {
-            if (self.hasAddress(address)) {
-                return try std.fs.path.join(allocator, &.{ self.path, address[self.address.len..] });
+        fn addAccessControl(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
+            if (self.allowed_origins) |ao| {
+                if (req.header("Origin")) |o| {
+                    if (ao.contains(o)) {
+                        res.header("Access-Control-Allow-Origin", o);
+                    }
+                }
             }
-            return null;
+        }
+
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            if (std.meta.hasFn(T, "deinit")) {
+                T.deinit(self, allocator);
+            }
+
+            if (self.allowed_origins) |*ao| {
+                ao.deinit();
+            }
+
+            allocator.free(self.base_url);
+        }
+
+        pub fn dispatch(self: *@This(), action: httpz.Action(*@This()), req: *httpz.Request, res: *httpz.Response) !void {
+            if (std.meta.hasFn(T, "dispatch")) {
+                if (!try T.dispatch(self, action, req, res)) return;
+            }
+            if (std.meta.hasFn(T, "additionalAction")) {
+                try T.additionalAction(self, req, res);
+            }
+
+            return action(self, req, res);
+        }
+
+        pub fn provider(self: *@This()) *Provider(T) {
+            return @fieldParentPtr("handler", self);
+        }
+
+        fn notFound(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
+            res.header("Content-Type", "text/html");
+            if (std.meta.hasFn(T, "additionalAction")) {
+                try T.additionalAction(self, req, res);
+            }
+            res.status = std.http.Status.not_found;
+
+            var writer = try res.writer();
+            try writer.writeAll(self.not_found_text orelse
+                \\<!doctype html>
+                \\<html lang="en">
+                \\  <head>
+                \\    <meta charset="UTF-8">
+                \\  </head>
+                \\  <body>
+                \\    <p>The requested page was not found!</p>
+                \\  </body>
+                \\</html>
+            );
+            try writer.writeByte('\n');
         }
     };
+}
 
-    pub const AdditionalHandler = *const fn (*Provider, ?*Route, *zig_serve.http.Context) Route.Error!void;
-
-    allocator: std.mem.Allocator,
-    server: zig_serve.http.Listener,
-    base_url: []const u8,
-    not_found_text: ?[]const u8 = null,
-    routes: std.ArrayList(Route),
-    /// List of directories that contain runtime CWD-relative file tree with provided content
-    embedded: std.ArrayList(EmbedDir),
-    allowed_origins: ?std.BufSet = null,
-    cwd: std.fs.Dir,
-    max_file_size: usize = 20 * 1024 * 1024,
-    additional_handler: ?AdditionalHandler = null,
-
-    pub fn create(allocator: std.mem.Allocator, port: u16) !*Self {
-        const provider = try allocator.create(Self);
-        errdefer allocator.destroy(provider);
-
-        provider.* = Self{
-            .allocator = allocator,
-            .base_url = undefined,
-            .cwd = try std.fs.cwd().openDir(".", .{}),
-            .embedded = std.ArrayList(EmbedDir).init(allocator),
-            .server = undefined,
-            .routes = std.ArrayList(Route).init(allocator),
-        };
-        errdefer provider.routes.deinit();
-
-        provider.server = try zig_serve.http.Listener.init(allocator);
-        errdefer provider.server.deinit();
-
-        try provider.server.addEndpoint(zig_serve.IP.loopback_v4, port);
-
-        try provider.server.start();
-
-        const endpoint = try provider.server.bindings.items[0].socket.?.getLocalEndPoint();
-
-        provider.base_url = try std.fmt.allocPrint(provider.allocator, "http://127.0.0.1:{d}", .{endpoint.port});
-        errdefer provider.allocator.free(provider.base_url);
-
-        return provider;
-    }
-
-    pub fn destroy(self: *Self) void {
-        self.server.deinit();
-        if (self.allowed_origins) |*ao| {
-            ao.deinit();
-        }
-
-        for (self.routes.items) |*route| {
-            route.deinit();
-        }
-        self.routes.deinit();
-        self.embedded.deinit();
-        self.cwd.close();
-        self.allocator.free(self.base_url);
-    }
-
-    fn compareRoute(_: void, lhs: Route, rhs: Route) bool {
-        return std.ascii.lessThanIgnoreCase(lhs.prefix, rhs.prefix);
-    }
-
-    fn sortRoutes(self: *Self) void {
-        std.sort.sort(Route, self.routes.items, {}, compareRoute);
-    }
-
-    fn defaultRoute(self: *Provider, route: *Route, context: *zig_serve.http.Context) Route.Error!void {
-        _ = route;
-
-        try context.response.setHeader("Content-Type", "text/html");
-        if (self.additional_handler) |a| {
-            try a(self, null, context);
-        }
-        try context.response.setStatusCode(.not_found);
-
-        var writer = try context.response.writer();
-        try writer.writeAll(self.not_found_text orelse
-            \\<!doctype html>
-            \\<html lang="en">
-            \\  <head>
-            \\    <meta charset="UTF-8">
-            \\  </head>
-            \\  <body>
-            \\    <p>The requested page was not found!</p>
-            \\  </body>
-            \\</html>
-        );
-        try writer.writeByte('\n');
-    }
-
-    pub fn addRoute(self: *Self, abs_path: []const u8) !*Route {
-        std.debug.assert(abs_path[0] == '/');
-
-        const route = try self.routes.addOne();
-        errdefer _ = self.routes.pop();
-
-        route.* = Route{
-            .arena = std.heap.ArenaAllocator.init(self.allocator),
-            .prefix = undefined,
-            .handler = defaultRoute,
-            .context = undefined,
-        };
-        errdefer route.deinit();
-
-        route.prefix = try std.fmt.allocPrintZ(route.arena.allocator(), "{s}{s}", .{ self.base_url, abs_path });
-
-        return route;
-    }
-
-    const FileHandler = struct {
+pub fn Provider(comptime Handler: type) type {
+    const FileContext = struct {
+        max_file_size: usize = 20 * 1024 * 1024,
         mime_type: []const u8,
         path: []const u8,
-        allowed_origins: ?std.BufSet,
-        additional_handler: ?AdditionalHandler = null,
 
-        fn handle(provider: *Provider, r: *Route, context: *zig_serve.http.Context) Route.Error!void {
-            const handler = r.getContext(@This());
-            if (std.fs.cwd().openFile(handler.path, .{})) |file| {
+        fn handle(_: *const anyopaque, req: *httpz.Request, res: *httpz.Response) !void {
+            const context: *const @This() = @alignCast(@ptrCast(req.route_data));
+
+            if (std.fs.cwd().openFile(context.path, .{})) |file| {
                 defer file.close();
-                const content = file.readToEndAlloc(provider.allocator, provider.max_file_size) catch |err| {
-                    try context.response.setHeader("Content-Type", "text/plain");
-                    try context.response.setStatusCode(.internal_server_error);
-                    var writer = try context.response.writer();
-                    try writer.print("Could not read file {s}: {}\n", .{ handler.path, err });
+                res.body = file.readToEndAlloc(res.arena, context.max_file_size) catch |err| {
+                    res.header("Content-Type", "text/plain");
+                    res.status = std.http.Status.internal_server_error;
+                    try std.fmt.format(res.writer(), "Could not read file {s}: {}\n", .{ context.path, err });
                     return;
                 };
-                try context.response.setHeader("Content-Type", handler.mime_type);
-                if (handler.additional_handler) |h| {
-                    try h(provider, r, context);
-                }
-                defer provider.allocator.free(content);
-                var writer = try context.response.writer();
-                try writer.writeAll(content);
+                res.header("Content-Type", context.mime_type);
             } else |err| {
-                try context.response.setHeader("Content-Type", "text/plain");
-                try context.response.setStatusCode(.not_found);
-                var writer = try context.response.writer();
-                try writer.print("Could not open file {s}: {}\n", .{ handler.path, err });
+                res.header("Content-Type", "text/plain");
+                res.status = std.http.Status.not_found;
+                var writer = try res.writer();
+                try writer.print("Could not open file {s}: {}\n", .{ context.path, err });
             }
         }
     };
 
-    pub fn addFile(self: *Self, abs_path: []const u8, mime_type: []const u8, path: []const u8) !*FileHandler {
-        const route = try self.addRoute(abs_path);
+    const wrapped = HandlerWrapper(Handler);
+    const dummy = httpz.Server(*wrapped);
+    const _dummy: dummy = undefined;
 
-        const handler = try route.arena.allocator().create(FileHandler);
-        handler.* = FileHandler{
-            .mime_type = try route.arena.allocator().dupe(u8, mime_type),
-            .path = path,
-            .allowed_origins = self.allowed_origins,
-        };
+    return struct {
+        const Self = @This();
+        pub const Router = @TypeOf(_dummy._router);
+        pub const RouterConfig = @typeInfo(@TypeOf(Server.router)).@"fn".params[1].type.?;
+        pub const Server = httpz.Server(*WrappedHandler);
+        pub const WrappedHandler = wrapped;
 
-        route.handler = FileHandler.handle;
-        route.context = @as(*Route.GenericPointer, @ptrCast(handler));
-        return handler;
-    }
+        /// arena that contains all routes contexts
+        arena: std.heap.ArenaAllocator,
+        dir: *DirContext,
+        handler: WrappedHandler,
+        router: *Router,
+        server: Server,
 
-    pub const ContentHandler = struct {
-        mime_type: []const u8,
-        contents: []const u8,
-        allowed_origins: ?std.BufSet,
-        additional_handler: ?AdditionalHandler = null,
+        pub fn create(allocator: std.mem.Allocator, config: httpz.Config, router_config: RouterConfig, handler: Handler) !*Self {
+            var arena = std.heap.ArenaAllocator.init(allocator);
+            const arena_allocator = arena.allocator();
 
-        pub fn handle(p: *Provider, r: *Route, context: *zig_serve.http.Context) Route.Error!void {
-            const handler = r.getContext(@This());
+            const provider = try arena_allocator.create(Self);
+            errdefer arena_allocator.destroy(provider);
 
-            try context.response.setHeader("Content-Type", handler.mime_type);
-
-            if (handler.additional_handler) |a| {
-                try a(p, r, context);
-            }
-
-            var writer = try context.response.writer();
-            try writer.writeAll(handler.contents);
-        }
-    };
-
-    pub fn addContent(self: *Self, abs_path: []const u8, mime_type: []const u8, contents: []const u8) !*ContentHandler {
-        const route = try self.addRoute(abs_path);
-
-        const handler = try route.arena.allocator().create(ContentHandler);
-        handler.* = ContentHandler{
-            .mime_type = try route.arena.allocator().dupe(u8, mime_type),
-            .contents = try route.arena.allocator().dupe(u8, contents),
-            .allowed_origins = self.allowed_origins,
-            .additional_handler = self.additional_handler,
-        };
-
-        route.handler = ContentHandler.handle;
-        route.context = @as(*Route.GenericPointer, @ptrCast(handler));
-        return handler;
-    }
-
-    pub fn addContentNoAlloc(self: *Self, abs_path: []const u8, mime_type: []const u8, contents: []const u8) !*ContentHandler {
-        const route = try self.addRoute(abs_path);
-
-        const handler = try route.arena.allocator().create(ContentHandler);
-        handler.* = ContentHandler{
-            .mime_type = mime_type,
-            .contents = contents,
-            .allowed_origins = self.allowed_origins,
-            .additional_handler = self.additional_handler,
-        };
-
-        route.handler = ContentHandler.handle;
-        route.context = @as(*Route.GenericPointer, @ptrCast(handler));
-        return handler;
-    }
-
-    fn addAccessControl(self: *Self, context: *zig_serve.http.Context) !void {
-        if (self.allowed_origins) |ao| {
-            if (context.request.headers.get("Origin")) |o| {
-                if (ao.contains(o)) {
-                    try context.response.setHeader("Access-Control-Allow-Origin", o);
-                }
-            }
-        }
-    }
-
-    /// Returns the full URI for `abs_path`
-    pub fn getUriAlloc(self: *Self, abs_path: []const u8) !?[:0]const u8 {
-        std.debug.assert(abs_path[0] == '/');
-        for (self.routes.items) |route| {
-            if (std.mem.eql(u8, route.prefix[self.base_url.len..], abs_path))
-                return try self.allocator.dupeZ(u8, route.prefix);
-        }
-        for (self.embedded.items) |embedded_dir| {
-            if (embedded_dir.hasAddress(abs_path)) {
-                return try std.fmt.allocPrintZ(self.allocator, "{s}{s}", .{ self.base_url, abs_path });
-            }
-        }
-        return null;
-    }
-
-    pub fn run(self: *Self) !void {
-        while (try self.server.getContext()) |ctx| {
-            defer ctx.deinit();
-
-            self.handleRequest(ctx) catch |err| {
-                log.warn("failed request: {s}", .{@errorName(err)});
+            provider.* = Self{
+                .arena = undefined,
+                .dir = try allocator.create(DirContext),
+                .handler = WrappedHandler{
+                    .base_url = undefined,
+                    .cwd = try std.fs.cwd().openDir(".", .{}),
+                    .wrapped = handler,
+                },
+                .server = undefined,
+                .router = undefined,
             };
-        }
-    }
 
-    fn fdIsValid(fd: std.posix.fd_t) bool {
-        return if (builtin.os.tag == .windows)
-            true
-        else
-            std.posix.system.fcntl(fd, std.posix.F.GETFD) != -1;
-    }
+            provider.server = try Server.init(allocator, config, &provider.handler);
+            provider.dir.* = DirContext{
+                .embedded = std.ArrayList(DirContext.EmbedDir).init(allocator),
+            };
 
-    fn handleRequest(self: *Self, ctx: *zig_serve.http.Context) !void {
-        try self.addAccessControl(ctx);
-        var path = ctx.request.url;
-        if (std.mem.indexOfScalar(u8, path, '?')) |index| {
-            path = path[0..index];
-        }
-
-        var best_match: ?*Route = null;
-        var exact_match = false;
-        for (self.routes.items) |*route| {
-            if (std.mem.startsWith(u8, path, route.prefix[self.base_url.len..])) {
-                if (best_match == null or best_match.?.prefix.len < route.prefix.len) {
-                    best_match = route;
-                }
-                if (path.len == route.prefix.len - self.base_url.len) {
-                    exact_match = true;
-                    break;
-                }
+            errdefer {
+                provider.server.stop();
+                provider.server.deinit();
             }
+
+            provider.router = try provider.server.router(router_config);
+            provider.router.get("*", DirContext.handle, .{ .data = provider.dir });
+
+            provider.server.handler.base_url = try std.fmt.allocPrint(allocator, "http://{s}:{d}", .{
+                config.address orelse "127.0.0.1",
+                config.port orelse 5882, // The default values must be snyced with the default values defined by httpz
+            });
+            errdefer arena_allocator.free(provider.handler.base_url);
+            provider.arena = arena;
+
+            return provider;
         }
-        if (exact_match) {
-            try best_match.?.handler(self, best_match.?, ctx);
-        } else {
-            for (self.embedded.items) |embedded_dir| {
-                if (try embedded_dir.resolveAddressPath(self.allocator, path)) |sub_path| {
-                    defer self.allocator.free(sub_path);
-                    if (fdIsValid(self.cwd.fd)) { // is not valid after closed application
-                        if (self.cwd.openFile(sub_path, .{})) |file| {
-                            defer file.close();
-                            const content = file.readToEndAlloc(self.allocator, self.max_file_size) catch |err| {
-                                try ctx.response.setHeader("Content-Type", "text/plain");
-                                try ctx.response.setStatusCode(.internal_server_error);
-                                var writer = try ctx.response.writer();
-                                try writer.print("Could not read file {s}: {}\n", .{ path, err });
+
+        pub fn destroy(self: *Self) void {
+            self.server.stop();
+            self.server.allocator.destroy(self.dir);
+            self.server.handler.deinit(self.server.allocator);
+            self.server.deinit();
+            self.arena.deinit();
+        }
+
+        pub fn addFile(self: *Self, abs_path: []const u8, mime_type: []const u8, path: []const u8) !void {
+            const allocator = self.arena.allocator();
+            const context = try allocator.create(FileContext);
+            context.* = .{
+                .mime_type = mime_type,
+                .path = path,
+            };
+
+            try self.router.tryGet(abs_path, FileContext.handle, .{
+                .data = context,
+            });
+        }
+
+        pub fn addContent(self: *Self, abs_path: []const u8, mime_type: []const u8, contents: []const u8) !void {
+            const allocator = self.arena.allocator();
+            const context = try allocator.create(ContentContext);
+
+            context.* = ContentContext{
+                .mime_type = try allocator.dupe(u8, mime_type),
+                .contents = try allocator.dupe(u8, contents),
+            };
+
+            return self.router.get(abs_path, ContentContext.handle, .{
+                .data = context,
+            });
+        }
+
+        pub fn addContentNoAlloc(self: *Self, abs_path: []const u8, mime_type: []const u8, contents: []const u8) !*ContentContext {
+            const allocator = self.arena.allocator();
+            const context = try allocator.create(ContentContext);
+
+            context.* = ContentContext{
+                .mime_type = mime_type,
+                .contents = contents,
+            };
+
+            try self.router.tryGet(abs_path, ContentContext.handle, .{
+                .data = context,
+            });
+            return context;
+        }
+
+        /// Returns the full URI for `abs_path`
+        pub fn getUriAlloc(self: *Self, abs_path: []const u8) !?[:0]const u8 {
+            std.debug.assert(abs_path[0] == '/');
+            const allocator = self.arena.allocator();
+            return try std.fmt.allocPrintZ(allocator, "{s}{s}", .{ self.server.handler.base_url, abs_path });
+            // TODO return only really routable urls
+        }
+
+        /// this is blocking on Windows
+        pub fn run(self: *Self) !void {
+            try self.server.listen();
+        }
+
+        fn fdIsValid(fd: std.posix.fd_t) bool {
+            return if (builtin.os.tag == .windows)
+                true
+            else
+                std.posix.system.fcntl(fd, std.posix.F.GETFD) != -1;
+        }
+
+        pub const ContentContext = struct {
+            mime_type: []const u8,
+            contents: []const u8,
+            additional_handler: ?*const fn (*Self, *httpz.Request, *httpz.Response) void = null,
+
+            pub fn handle(self: *WrappedHandler, req: *httpz.Request, res: *httpz.Response) !void {
+                const context: *const ContentContext = @alignCast(@ptrCast(req.route_data));
+
+                res.header("Content-Type", context.mime_type);
+                if (context.additional_handler) |handler| handler(self.provider(), req, res);
+                res.body = context.contents;
+            }
+        };
+
+        const DirContext = struct {
+            /// List of directories that contain runtime CWD-relative file tree with provided content
+            embedded: std.ArrayList(EmbedDir),
+            max_file_size: usize = 20 * 1024 * 1024,
+
+            pub const EmbedDir = struct {
+                address: []const u8,
+                path: []const u8,
+                resolveMime: *const fn (path: []const u8) []const u8,
+
+                fn hasAddress(self: *const @This(), address: []const u8) bool {
+                    return std.ascii.startsWithIgnoreCase(address, self.address);
+                }
+                fn resolveAddressPath(self: *const @This(), allocator: std.mem.Allocator, address: []const u8) !?[]const u8 {
+                    if (self.hasAddress(address)) {
+                        return try std.fs.path.join(allocator, &.{ self.path, address[self.address.len..] });
+                    }
+                    return null;
+                }
+            };
+
+            pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+                self.embedded.deinit(allocator);
+            }
+
+            fn handle(handler: *WrappedHandler, req: *httpz.Request, res: *httpz.Response) !void {
+                const context: *const DirContext = @alignCast(@ptrCast(req.route_data));
+
+                for (context.embedded.items) |embedded_dir| {
+                    if (try embedded_dir.resolveAddressPath(res.arena, req.url.path)) |sub_path| {
+                        defer res.arena.free(sub_path);
+                        if (fdIsValid(handler.cwd.fd)) { // is not valid after closed application
+                            if (handler.cwd.openFile(sub_path, .{})) |file| {
+                                defer file.close();
+                                res.body = file.readToEndAlloc(res.arena, context.max_file_size) catch |err| {
+                                    res.header("Content-Type", "text/plain");
+                                    res.status = @intFromEnum(std.http.Status.internal_server_error);
+                                    var writer = res.writer();
+                                    try writer.print("Could not read file {s}: {}\n", .{ req.url.path, err });
+                                    return;
+                                };
+                                res.header("Content-Type", embedded_dir.resolveMime(req.url.path));
+
                                 return;
-                            };
-                            try ctx.response.setHeader("Content-Type", embedded_dir.resolveMime(path));
-                            if (self.additional_handler) |a| {
-                                try a(self, null, ctx);
-                            }
-                            defer self.allocator.free(content);
-                            var writer = try ctx.response.writer();
-                            try writer.writeAll(content);
-                            return;
-                        } else |err| if (best_match == null) {
-                            try ctx.response.setHeader("Content-Type", "text/plain");
-                            try ctx.response.setStatusCode(.not_found);
-                            var writer = try ctx.response.writer();
-                            try writer.print("Could not open file {s}: {}\n", .{ path, err });
-                            return;
+                            } else |_| {}
                         }
                     }
                 }
             }
-
-            if (best_match) |route|
-                try route.handler(self, route, ctx)
-            else
-                try defaultRoute(self, undefined, ctx);
-        }
-    }
-};
+        };
+    };
+}
