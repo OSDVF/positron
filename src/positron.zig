@@ -318,9 +318,9 @@ fn HandlerWrapper(comptime T: type) type {
 
         fn addAccessControl(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
             if (self.allowed_origins) |ao| {
-                if (req.header("Origin")) |o| {
+                if (req.header("origin")) |o| {
                     if (ao.contains(o)) {
-                        res.header("Access-Control-Allow-Origin", o);
+                        res.header("access-control-allow-origin", o);
                     }
                 }
             }
@@ -339,6 +339,8 @@ fn HandlerWrapper(comptime T: type) type {
         }
 
         pub fn dispatch(self: *@This(), action: httpz.Action(*@This()), req: *httpz.Request, res: *httpz.Response) !void {
+            try self.addAccessControl(req, res);
+
             if (std.meta.hasFn(T, "dispatch")) {
                 if (!try T.dispatch(self, action, req, res)) return;
             }
@@ -354,7 +356,7 @@ fn HandlerWrapper(comptime T: type) type {
         }
 
         fn notFound(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
-            res.header("Content-Type", "text/html");
+            res.header("content-type", "text/html");
             if (std.meta.hasFn(T, "additionalAction")) {
                 try T.additionalAction(self, req, res);
             }
@@ -389,14 +391,14 @@ pub fn Provider(comptime Handler: type) type {
             if (std.fs.cwd().openFile(context.path, .{})) |file| {
                 defer file.close();
                 res.body = file.readToEndAlloc(res.arena, context.max_file_size) catch |err| {
-                    res.header("Content-Type", "text/plain");
+                    res.header("content-type", "text/plain");
                     res.status = std.http.Status.internal_server_error;
                     try std.fmt.format(res.writer(), "Could not read file {s}: {}\n", .{ context.path, err });
                     return;
                 };
-                res.header("Content-Type", context.mime_type);
+                res.header("content-type", context.mime_type);
             } else |err| {
-                res.header("Content-Type", "text/plain");
+                res.header("content-type", "text/plain");
                 res.status = std.http.Status.not_found;
                 var writer = try res.writer();
                 try writer.print("Could not open file {s}: {}\n", .{ context.path, err });
@@ -452,7 +454,7 @@ pub fn Provider(comptime Handler: type) type {
             }
 
             provider.router = try provider.server.router(router_config);
-            provider.router.get("*", DirContext.handle, .{ .data = provider.dir });
+            provider.router.get("/*", DirContext.handle, .{ .data = provider.dir });
 
             provider.server.handler.base_url = try std.fmt.allocPrint(allocator, "http://{s}:{d}", .{
                 config.address orelse "127.0.0.1",
@@ -542,13 +544,13 @@ pub fn Provider(comptime Handler: type) type {
             pub fn handle(self: *WrappedHandler, req: *httpz.Request, res: *httpz.Response) !void {
                 const context: *const ContentContext = @alignCast(@ptrCast(req.route_data));
 
-                res.header("Content-Type", context.mime_type);
+                res.header("content-type", context.mime_type);
                 if (context.additional_handler) |handler| handler(self.provider(), req, res);
                 res.body = context.contents;
             }
         };
 
-        const DirContext = struct {
+        pub const DirContext = struct {
             /// List of directories that contain runtime CWD-relative file tree with provided content
             embedded: std.ArrayList(EmbedDir),
             max_file_size: usize = 20 * 1024 * 1024,
@@ -573,7 +575,7 @@ pub fn Provider(comptime Handler: type) type {
                 self.embedded.deinit(allocator);
             }
 
-            fn handle(handler: *WrappedHandler, req: *httpz.Request, res: *httpz.Response) !void {
+            pub fn handle(handler: *WrappedHandler, req: *httpz.Request, res: *httpz.Response) !void {
                 const context: *const DirContext = @alignCast(@ptrCast(req.route_data));
 
                 for (context.embedded.items) |embedded_dir| {
@@ -583,13 +585,13 @@ pub fn Provider(comptime Handler: type) type {
                             if (handler.cwd.openFile(sub_path, .{})) |file| {
                                 defer file.close();
                                 res.body = file.readToEndAlloc(res.arena, context.max_file_size) catch |err| {
-                                    res.header("Content-Type", "text/plain");
+                                    res.header("content-type", "text/plain");
                                     res.status = @intFromEnum(std.http.Status.internal_server_error);
                                     var writer = res.writer();
                                     try writer.print("Could not read file {s}: {}\n", .{ req.url.path, err });
                                     return;
                                 };
-                                res.header("Content-Type", embedded_dir.resolveMime(req.url.path));
+                                res.header("content-type", embedded_dir.resolveMime(req.url.path));
 
                                 return;
                             } else |_| {}
