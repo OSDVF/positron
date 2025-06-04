@@ -13,6 +13,8 @@ pub fn build(b: *std.Build) !void {
     const backend = b.option(Backend, "backend", "Configures the backend that should be used for webview.");
     const libs_locations = b.option([]const []const u8, "libs", "List of directories containing system libraries");
     const static = b.option(bool, "static", "Use static WebView2Loader on Windows");
+    const link_webview = b.option(bool, "link_webview", "Link WebView2 library. This can be disabled for using Positron" ++
+        " only for its non-webview dependent features") orelse true;
 
     const minimal_exe = b.addExecutable(.{
         .name = "positron-minimal",
@@ -36,16 +38,19 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "httpz", .module = httpz_module },
         },
     });
-    try linkWebView(positron, backend, libs_locations orelse blk: {
-        const native_paths = try std.zig.system.NativePaths.detect(b.allocator, target.result);
-        break :blk native_paths.lib_dirs.items;
-    }, static orelse false);
-    const target_result = target.result;
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(
-        b.path(b.pathJoin(&.{ "vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", archName(target_result.cpu.arch), "WebView2Loader.dll" })),
-        if (target_result.os.tag == .windows) .bin else .lib,
-        "WebView2Loader.dll",
-    ).step);
+    if (link_webview) {
+        try linkWebView(positron, backend, libs_locations orelse blk: {
+            const native_paths = try std.zig.system.NativePaths.detect(b.allocator, target.result);
+            break :blk native_paths.lib_dirs.items;
+        }, static orelse false);
+
+        const target_result = target.result;
+        b.getInstallStep().dependOn(&b.addInstallFileWithDir(
+            b.path(b.pathJoin(&.{ "vendor/Microsoft.Web.WebView2.1.0.902.49/build/native", archName(target_result.cpu.arch), "WebView2Loader.dll" })),
+            if (target_result.os.tag == .windows) .bin else .lib,
+            "WebView2Loader.dll",
+        ).step);
+    }
 
     minimal_exe.root_module.addImport("positron", positron);
     b.installArtifact(minimal_exe);
