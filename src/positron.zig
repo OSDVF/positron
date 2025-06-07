@@ -533,7 +533,7 @@ pub fn Provider(comptime Handler: type) type {
             return if (builtin.os.tag == .windows)
                 true
             else
-                std.posix.system.fcntl(fd, std.posix.F.GETFD) != -1;
+                std.posix.system.fcntl(fd, std.posix.F.GETFD, @as(usize, 0)) != -1;
         }
 
         pub const ContentContext = struct {
